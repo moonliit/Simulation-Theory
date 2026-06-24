@@ -1,6 +1,6 @@
 using UnityEngine;
 
-public class SDFVolumeData : MonoBehaviour
+public class SdfVolumeData : MonoBehaviour
 {
     [Header("Volume Configuration")]
     [Range(16, 64)] public int resolution = 32; // Voxel grid resolution
@@ -95,10 +95,10 @@ public class SDFVolumeData : MonoBehaviour
                 {
                     // Distance from this specific voxel node to our carving tool center
                     float distToCarveCenter = Mathf.Sqrt(Mathf.Pow(x - gridX, 2) + Mathf.Pow(y - gridY, 2) + Mathf.Pow(z - gridZ, 2));
-                    float sphereSDF = (distToCarveCenter - gridRadius) / resolution;
+                    float sphereSdf = (distToCarveCenter - gridRadius) / resolution;
 
                     // CSG Subtraction math: max(Base Shape, -Carving Shape)
-                    voxelGrid[x, y, z] = Mathf.Max(voxelGrid[x, y, z], -sphereSDF);
+                    voxelGrid[x, y, z] = Mathf.Max(voxelGrid[x, y, z], -sphereSdf);
                 }
             }
         }

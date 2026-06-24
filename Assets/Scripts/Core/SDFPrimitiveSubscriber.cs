@@ -1,7 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 
-public class SDFPrimitiveSubscriber : MonoBehaviour
+public class SdfPrimitiveSubscriber : MonoBehaviour
 {
     public enum PrimitiveType { Cube, Sphere, Capsule }
     public enum OperationType { Union, Intersection, Subtraction }
@@ -11,7 +11,7 @@ public class SDFPrimitiveSubscriber : MonoBehaviour
     [SerializeField] public OperationType operationType = OperationType.Union;
 
     // Track ALL nodes that this primitive physically intersects with
-    private readonly List<SDFOctreeNode> occupiedNodes = new List<SDFOctreeNode>();
+    private readonly List<SdfOctreeNode> occupiedNodes = new List<SdfOctreeNode>();
     
     private Vector3 lastPosition;
     private Vector3 lastScale;
@@ -53,14 +53,14 @@ public class SDFPrimitiveSubscriber : MonoBehaviour
         }
         occupiedNodes.Clear();
 
-        if (SDFOctreeManager.Instance == null) return;
+        if (SdfOctreeManager.Instance == null) return;
 
         // 2. Fetch the true physical world-space bounds of this primitive
         Bounds myBounds = GetWorldBounds();
 
         // 3. Query the tree to find every leaf node overlapping our volume
-        List<SDFOctreeNode> overlappingLeaves = new List<SDFOctreeNode>();
-        SDFOctreeManager.Instance.FindAllLeafNodesOverlapping(myBounds, overlappingLeaves);
+        List<SdfOctreeNode> overlappingLeaves = new List<SdfOctreeNode>();
+        SdfOctreeManager.Instance.FindAllLeafNodesOverlapping(myBounds, overlappingLeaves);
 
         // 4. Register to all overlapping leaves
         foreach (var leaf in overlappingLeaves)
@@ -70,7 +70,7 @@ public class SDFPrimitiveSubscriber : MonoBehaviour
         }
 
         // 5. Trigger a structural merge/collapse pass over the engine if we abandoned empty spots
-        SDFOctreeManager.Instance.TriggerCollapseCheck();
+        SdfOctreeManager.Instance.TriggerCollapseCheck();
     }
 
     public Bounds GetWorldBounds()
@@ -106,8 +106,8 @@ public class SDFPrimitiveSubscriber : MonoBehaviour
         }
         occupiedNodes.Clear();
         
-        if (SDFOctreeManager.Instance != null)
-            SDFOctreeManager.Instance.TriggerCollapseCheck();
+        if (SdfOctreeManager.Instance != null)
+            SdfOctreeManager.Instance.TriggerCollapseCheck();
     }
 
     void OnDrawGizmos()

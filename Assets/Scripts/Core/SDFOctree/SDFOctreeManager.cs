@@ -3,9 +3,9 @@ using System.Collections.Generic;
 
 [ExecuteAlways]
 [RequireComponent(typeof(BoxCollider))]
-public class SDFOctreeManager : MonoBehaviour
+public class SdfOctreeManager : MonoBehaviour
 {
-    public static SDFOctreeManager Instance { get; private set; }
+    public static SdfOctreeManager Instance { get; private set; }
     public static bool IsShuttingDown { get; private set; } = false;
 
     [Header("Octree Segment Rules")]
@@ -13,7 +13,7 @@ public class SDFOctreeManager : MonoBehaviour
     [SerializeField] private int maxObjectsPerNode = 4;
     [SerializeField] private GameObject sdfContainerPrefab;
 
-    private SDFOctreeNode rootNode;
+    private SdfOctreeNode rootNode;
     private BoxCollider boundaryCollider;
 
     // ========================================================
@@ -39,9 +39,9 @@ public class SDFOctreeManager : MonoBehaviour
     private readonly Matrix4x4[] gCapsuleMatrices = new Matrix4x4[64];
     private readonly Vector4[] gCapsuleData = new Vector4[64];
 
-    private List<SDFPrimitiveSubscriber> activeCubes = new List<SDFPrimitiveSubscriber>();
-    private List<SDFPrimitiveSubscriber> activeSpheres = new List<SDFPrimitiveSubscriber>();
-    private List<SDFPrimitiveSubscriber> activeCapsules = new List<SDFPrimitiveSubscriber>();
+    private List<SdfPrimitiveSubscriber> activeCubes = new List<SdfPrimitiveSubscriber>();
+    private List<SdfPrimitiveSubscriber> activeSpheres = new List<SdfPrimitiveSubscriber>();
+    private List<SdfPrimitiveSubscriber> activeCapsules = new List<SdfPrimitiveSubscriber>();
 
     void Awake()
     {
@@ -57,7 +57,7 @@ public class SDFOctreeManager : MonoBehaviour
 
     void Start()
     {
-        var baselineObjects = FindObjectsByType<SDFPrimitiveSubscriber>(FindObjectsSortMode.None);
+        var baselineObjects = FindObjectsByType<SdfPrimitiveSubscriber>(FindObjectsSortMode.None);
         List<Transform> population = new List<Transform>();
         
         activeCubes.Clear();
@@ -77,7 +77,7 @@ public class SDFOctreeManager : MonoBehaviour
         }
 
         Bounds totalWorkspaceBounds = new Bounds(boundaryCollider.bounds.center, boundaryCollider.bounds.size);
-        rootNode = new SDFOctreeNode(totalWorkspaceBounds, minNodeSize, maxObjectsPerNode, sdfContainerPrefab);
+        rootNode = new SdfOctreeNode(totalWorkspaceBounds, minNodeSize, maxObjectsPerNode, sdfContainerPrefab);
         rootNode.BuildInitialTree(population);
     }
 
@@ -97,7 +97,7 @@ public class SDFOctreeManager : MonoBehaviour
 
     private void RefreshEditorPrimitiveBuffers()
     {
-        var baselineObjects = FindObjectsByType<SDFPrimitiveSubscriber>(FindObjectsSortMode.None);
+        var baselineObjects = FindObjectsByType<SdfPrimitiveSubscriber>(FindObjectsSortMode.None);
         
         activeCubes.Clear();
         activeSpheres.Clear();
@@ -202,12 +202,12 @@ public class SDFOctreeManager : MonoBehaviour
         Shader.SetGlobalInt(GlobalCapsuleCountID, capsuleCount);
     }
 
-    public SDFOctreeNode FindLeafNodeForPosition(Vector3 position)
+    public SdfOctreeNode FindLeafNodeForPosition(Vector3 position)
     {
         return SearchNodeRecursive(rootNode, position);
     }
 
-    private SDFOctreeNode SearchNodeRecursive(SDFOctreeNode currentNode, Vector3 targetPos)
+    private SdfOctreeNode SearchNodeRecursive(SdfOctreeNode currentNode, Vector3 targetPos)
     {
         if (currentNode == null || !currentNode.Bounds.Contains(targetPos)) return null;
 
@@ -215,7 +215,7 @@ public class SDFOctreeManager : MonoBehaviour
         {
             foreach (var child in currentNode.childNodes)
             {
-                SDFOctreeNode result = SearchNodeRecursive(child, targetPos);
+                SdfOctreeNode result = SearchNodeRecursive(child, targetPos);
                 if (result != null) return result;
             }
         }
@@ -228,7 +228,7 @@ public class SDFOctreeManager : MonoBehaviour
         if (rootNode != null) CheckCollapseRecursive(rootNode);
     }
 
-    private bool CheckCollapseRecursive(SDFOctreeNode node)
+    private bool CheckCollapseRecursive(SdfOctreeNode node)
     {
         if (node == null) return true;
         if (node.childNodes == null) return node.localPrimitives.Count == 0;
@@ -243,12 +243,12 @@ public class SDFOctreeManager : MonoBehaviour
         return false;
     }
 
-    public void FindAllLeafNodesOverlapping(Bounds targetBounds, List<SDFOctreeNode> results)
+    public void FindAllLeafNodesOverlapping(Bounds targetBounds, List<SdfOctreeNode> results)
     {
         if (rootNode != null) SearchOverlappingNodesRecursive(rootNode, targetBounds, results);
     }
 
-    private void SearchOverlappingNodesRecursive(SDFOctreeNode currentNode, Bounds searchBounds, List<SDFOctreeNode> results)
+    private void SearchOverlappingNodesRecursive(SdfOctreeNode currentNode, Bounds searchBounds, List<SdfOctreeNode> results)
     {
         if (!currentNode.Bounds.Intersects(searchBounds)) return;
 

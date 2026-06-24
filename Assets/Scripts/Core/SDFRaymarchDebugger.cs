@@ -2,7 +2,7 @@ using UnityEngine;
 using UnityEditor;
 
 [ExecuteInEditMode]
-public class SDFRaymarchDebugger : MonoBehaviour
+public class SdfRaymarchDebugger : MonoBehaviour
 {
     [Header("Raymarch Parameters")]
     [Range(0.1f, 10f)] public float sphereRadius = 2.0f;

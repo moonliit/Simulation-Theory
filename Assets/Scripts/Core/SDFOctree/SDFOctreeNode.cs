@@ -1,7 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 
-public class SDFOctreeNode
+public class SdfOctreeNode
 {
     public Bounds Bounds { get; private set; }
     private readonly float minNodeSize;
@@ -9,12 +9,12 @@ public class SDFOctreeNode
     private readonly GameObject containerPrefab;
 
     public List<Transform> localPrimitives = new List<Transform>();
-    public SDFOctreeNode[] childNodes;
+    public SdfOctreeNode[] childNodes;
     
     private GameObject renderClusterInstance;
-    private SDFSceneManager clusterManager;
+    private SdfSceneManager clusterManager;
 
-    public SDFOctreeNode(Bounds bounds, float minSize, int maxObjects, GameObject prefab)
+    public SdfOctreeNode(Bounds bounds, float minSize, int maxObjects, GameObject prefab)
     {
         Bounds = bounds;
         minNodeSize = minSize;
@@ -60,7 +60,7 @@ public class SDFOctreeNode
 
     private void Subdivide()
     {
-        childNodes = new SDFOctreeNode[8];
+        childNodes = new SdfOctreeNode[8];
         Vector3 subSize = Bounds.size * 0.5f;
 
         int idx = 0;
@@ -71,7 +71,7 @@ public class SDFOctreeNode
                 for (int z = -1; z <= 1; z += 2)
                 {
                     Vector3 newCenter = Bounds.center + new Vector3(subSize.x * x * 0.5f, subSize.y * y * 0.5f, subSize.z * z * 0.5f);
-                    childNodes[idx++] = new SDFOctreeNode(new Bounds(newCenter, subSize), minNodeSize, maxObjectsPerNode, containerPrefab);
+                    childNodes[idx++] = new SdfOctreeNode(new Bounds(newCenter, subSize), minNodeSize, maxObjectsPerNode, containerPrefab);
                 }
             }
         }
@@ -194,7 +194,7 @@ public class SDFOctreeNode
             // across the newly simplified node grid layout.
             foreach (var p in localPrimitives)
             {
-                var sub = p.GetComponent<SDFPrimitiveSubscriber>();
+                var sub = p.GetComponent<SdfPrimitiveSubscriber>();
                 if (sub != null) sub.RecalculateTreePresence();
             }
 
@@ -210,7 +210,7 @@ public class SDFOctreeNode
 
     // --- (Keep your exact UpdateClusterLifecycle and ClearCluster methods here...)
     // Manages the creation, removal, parenting, and sizing of the volume rendering container
-    private SDFRigidBodyWrapper clusterWrapper;
+    private SdfRigidBodyWrapper clusterWrapper;
 
     public void UpdateClusterLifecycle()
     {
@@ -222,23 +222,23 @@ public class SDFOctreeNode
             return;
         }
 
-        if (SDFOctreeManager.IsShuttingDown)
+        if (SdfOctreeManager.IsShuttingDown)
         {
             return;
         }
 
-        // 1. Spawn the SDF_Object container prefab if a primitive just entered an empty zone
+        // 1. Spawn the Sdf_Object container prefab if a primitive just entered an empty zone
         if (renderClusterInstance == null && containerPrefab != null)
         {
             renderClusterInstance = Object.Instantiate(containerPrefab, Bounds.center, Quaternion.identity);
-            renderClusterInstance.name = $"SDF_LeafCluster_Size{Bounds.size.x}";
+            renderClusterInstance.name = $"Sdf_LeafCluster_Size{Bounds.size.x}";
 
-            if (SDFOctreeManager.Instance != null)
-                renderClusterInstance.transform.SetParent(SDFOctreeManager.Instance.transform, true);
+            if (SdfOctreeManager.Instance != null)
+                renderClusterInstance.transform.SetParent(SdfOctreeManager.Instance.transform, true);
 
             // Cache both components sitting on the prefab root
-            clusterManager = renderClusterInstance.GetComponent<SDFSceneManager>();
-            clusterWrapper = renderClusterInstance.GetComponent<SDFRigidBodyWrapper>();
+            clusterManager = renderClusterInstance.GetComponent<SdfSceneManager>();
+            clusterWrapper = renderClusterInstance.GetComponent<SdfRigidBodyWrapper>();
         }
 
         if (renderClusterInstance != null)
@@ -256,7 +256,7 @@ public class SDFOctreeNode
                 foreach (var p in localPrimitives)
                 {
                     if (p == null) continue;
-                    var sub = p.GetComponent<SDFPrimitiveSubscriber>();
+                    var sub = p.GetComponent<SdfPrimitiveSubscriber>();
                     if (sub == null) continue;
 
                     if (sub.IsSphere())
@@ -276,7 +276,7 @@ public class SDFOctreeNode
         if (renderClusterInstance != null)
         {
             // SAFETY CHECK: If the game is shutting down, let Unity handle cleanup naturally
-            if (SDFOctreeManager.Instance != null && SDFOctreeManager.IsShuttingDown)
+            if (SdfOctreeManager.Instance != null && SdfOctreeManager.IsShuttingDown)
             {
                 renderClusterInstance = null;
                 clusterManager = null;
@@ -298,7 +298,7 @@ public class SDFOctreeNode
         }
     }
 
-    // Add this method anywhere inside your SDFOctreeNode class
+    // Add this method anywhere inside your SdfOctreeNode class
     public void DrawNodeGizmos()
     {
         if (childNodes != null)

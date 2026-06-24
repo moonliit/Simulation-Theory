@@ -1,4 +1,4 @@
-Shader "Custom/SDFVolumeRaymarcher"
+Shader "Custom/SdfVolumeRaymarcher"
 {
     Properties
     {
@@ -106,7 +106,7 @@ Shader "Custom/SDFVolumeRaymarcher"
                 return min(a, b) - h * h * h * k * (1.0 / 6.0);
             }
 
-            float GetSceneSDF(float3 p)
+            float GetSceneSdf(float3 p)
             {
                 float finalDist = 10000.0; 
 
@@ -194,9 +194,9 @@ Shader "Custom/SDFVolumeRaymarcher"
                 const float eps = 0.001;
                 float2 e = float2(eps, 0.0);
                 return normalize(float3(
-                    GetSceneSDF(p + e.xyy) - GetSceneSDF(p - e.xyy),
-                    GetSceneSDF(p + e.yxy) - GetSceneSDF(p - e.yxy),
-                    GetSceneSDF(p + e.yyx) - GetSceneSDF(p - e.yyx)
+                    GetSceneSdf(p + e.xyy) - GetSceneSdf(p - e.xyy),
+                    GetSceneSdf(p + e.yxy) - GetSceneSdf(p - e.yxy),
+                    GetSceneSdf(p + e.yyx) - GetSceneSdf(p - e.yyx)
                 ));
             }
 
@@ -222,7 +222,7 @@ Shader "Custom/SDFVolumeRaymarcher"
                 for (int i = 0; i < MAX_STEPS; i++)
                 {
                     float3 currentPosWS = rayOriginWS + rayDirWS * t;
-                    float distanceToScene = GetSceneSDF(currentPosWS);
+                    float distanceToScene = GetSceneSdf(currentPosWS);
 
                     if (distanceToScene <= SURFACE_THRESHOLD)
                     {

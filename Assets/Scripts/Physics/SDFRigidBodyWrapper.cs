@@ -1,6 +1,6 @@
 using UnityEngine;
 
-public class SDFRigidBodyWrapper : MonoBehaviour
+public class SdfRigidBodyWrapper : MonoBehaviour
 {
     [SerializeField] private int resolution = 32;
     [SerializeField] private Material raymarchMaterial;
@@ -57,7 +57,7 @@ public class SDFRigidBodyWrapper : MonoBehaviour
         // Setup rendering proxy container
         renderProxy = new GameObject(gameObject.name + "_RenderProxy");
         renderProxy.transform.SetParent(transform, false);
-        renderProxy.layer = LayerMask.NameToLayer("SDFRender");
+        renderProxy.layer = LayerMask.NameToLayer("SdfRender");
 
         var filter = renderProxy.AddComponent<MeshFilter>();
         renderProxyRenderer = renderProxy.AddComponent<MeshRenderer>();
@@ -72,7 +72,7 @@ public class SDFRigidBodyWrapper : MonoBehaviour
         renderProxyRenderer.material = InstanceMaterial;
 
         // Initialize our localized manager with our unique material instance
-        SDFSceneManager localManager = GetComponent<SDFSceneManager>();
+        SdfSceneManager localManager = GetComponent<SdfSceneManager>();
         if (localManager != null)
         {
             localManager.InitializeWithMaterial(InstanceMaterial);

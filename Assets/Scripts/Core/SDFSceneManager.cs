@@ -1,7 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 
-public class SDFSceneManager : MonoBehaviour
+public class SdfSceneManager : MonoBehaviour
 {
     // Local tracking lists populated directly by the Octree Leaf Node
     [HideInInspector] public readonly List<Transform> localCubes = new List<Transform>();

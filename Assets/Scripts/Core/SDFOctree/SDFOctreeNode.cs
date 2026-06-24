@@ -22,22 +22,38 @@ public class SDFOctreeNode
         containerPrefab = prefab;
     }
 
+    // Structural initialization: Subdivides using intersections instead of points
     public void BuildInitialTree(List<Transform> initialPopulation)
     {
+        localPrimitives.Clear();
+
+        // FILTER USING BOUNDING BOX OVERLAPS
         foreach (var p in initialPopulation)
         {
-            if (Bounds.Contains(p.position)) localPrimitives.Add(p);
+            if (p == null) continue;
+            
+            // Generate a bounding box context for the startup layout pass
+            Bounds primitiveBounds = new Bounds(p.position, p.lossyScale);
+            
+            if (Bounds.Intersects(primitiveBounds))
+            {
+                localPrimitives.Add(p);
+            }
         }
 
+        // Subdivide if we exceed the limit and are still larger than the min size limit
         if (localPrimitives.Count > maxObjectsPerNode && Bounds.size.x > minNodeSize)
         {
             Subdivide();
-            foreach (var child in childNodes) child.BuildInitialTree(localPrimitives);
+            
+            foreach (var child in childNodes)
+            {
+                child.BuildInitialTree(localPrimitives);
+            }
             localPrimitives.Clear();
         }
         else
         {
-            AssignPrimitivesToThisLeaf();
             UpdateClusterLifecycle();
         }
     }
@@ -65,9 +81,10 @@ public class SDFOctreeNode
     }
 
     // --- 📈 RUNTIME DYNAMIC SUBDIVISION ---
+    // --- 📈 RUNTIME DYNAMIC SUBDIVISION (VOLUME AWARE) ---
     public void AddPrimitiveDirectly(Transform primitive)
     {
-        // If this node is actually a branch, route the primitive further down
+        // If this node is a branch, route the primitive's full volume down to all overlapping children
         if (childNodes != null)
         {
             RouteToChildNode(primitive);
@@ -78,12 +95,12 @@ public class SDFOctreeNode
         {
             localPrimitives.Add(primitive);
             
-            // Re-verify if this room is now overcrowded at runtime!
+            // Re-verify if this leaf room is overcrowded at runtime
             if (localPrimitives.Count > maxObjectsPerNode && Bounds.size.x > minNodeSize)
             {
                 Subdivide();
                 
-                // Push all current roommates down into the new sub-rooms
+                // Redistribute current roommates down into the new sub-rooms based on intersection
                 foreach (var p in localPrimitives)
                 {
                     RouteToChildNode(p);
@@ -92,9 +109,26 @@ public class SDFOctreeNode
             }
             else
             {
-                var subscriber = primitive.GetComponent<SDFPrimitiveSubscriber>();
-                if (subscriber != null) subscriber.SetCurrentLeafNode(this);
+                // CLEANED UP: We no longer call SetCurrentLeafNode(this) here!
+                // The subscriber handles its own list tracking inside RecalculateTreePresence()
                 UpdateClusterLifecycle();
+            }
+        }
+    }
+
+    private void RouteToChildNode(Transform primitive)
+    {
+        if (primitive == null) return;
+        
+        // Form the bounding box of the primitive
+        Bounds primBounds = new Bounds(primitive.position, primitive.lossyScale);
+
+        // Push it into EVERY child node it touches
+        foreach (var child in childNodes)
+        {
+            if (child.Bounds.Intersects(primBounds))
+            {
+                child.AddPrimitiveDirectly(primitive);
             }
         }
     }
@@ -112,65 +146,67 @@ public class SDFOctreeNode
     }
 
     // Checks if all sibling nodes under a branch are empty, allowing a collapse merge
+    // Cache a unique collection list to avoid runtime GC allocation passes
+    private readonly static HashSet<Transform> collapseEvaluationSet = new HashSet<Transform>();
+
     public bool CheckAndCollapse()
     {
         if (childNodes == null) return localPrimitives.Count == 0;
 
         bool allChildrenAreLeaves = true;
-        int totalObjectsInChildren = 0;
+        collapseEvaluationSet.Clear();
 
         foreach (var child in childNodes)
         {
-            if (child.childNodes != null) allChildrenAreLeaves = false;
-            totalObjectsInChildren += child.localPrimitives.Count;
+            if (child.childNodes != null) 
+                allChildrenAreLeaves = false;
+
+            // Gather only unique primitive references across all sibling sectors
+            foreach (var p in child.localPrimitives)
+            {
+                if (p != null) collapseEvaluationSet.Add(p);
+            }
         }
 
-        // If children are empty or their combined grouping fits comfortably into a single room, collapse them!
-        if (allChildrenAreLeaves && totalObjectsInChildren <= maxObjectsPerNode)
+        // Collapse if children are deep-end leaves and their unique overlapping grouping 
+        // fits comfortably within a single parent room's capacity limits
+        if (allChildrenAreLeaves && collapseEvaluationSet.Count <= maxObjectsPerNode)
         {
-            // Pull elements back up to this parent room
+            // Pull the unique elements back up into this parent room
+            foreach (var p in collapseEvaluationSet)
+            {
+                if (!localPrimitives.Contains(p))
+                {
+                    localPrimitives.Add(p);
+                }
+            }
+
+            // Clean up the trailing child structures completely
             foreach (var child in childNodes)
             {
-                foreach (var p in child.localPrimitives)
-                {
-                    if (p != null)
-                    {
-                        localPrimitives.Add(p);
-                        var sub = p.GetComponent<SDFPrimitiveSubscriber>();
-                        if (sub != null) sub.SetCurrentLeafNode(this);
-                    }
-                }
+                child.localPrimitives.Clear();
                 child.ClearCluster();
             }
 
-            childNodes = null; // Delete child partitions
+            childNodes = null; // Dissolve child partitions
+            
+            // CLEANED UP: Force all inhabitants to find their actual new leaf arrangements 
+            // across the newly simplified node grid layout.
+            foreach (var p in localPrimitives)
+            {
+                var sub = p.GetComponent<SDFPrimitiveSubscriber>();
+                if (sub != null) sub.RecalculateTreePresence();
+            }
+
             UpdateClusterLifecycle();
-            return false;
+            return true;
         }
 
         return false;
     }
 
-    private void RouteToChildNode(Transform primitive)
-    {
-        foreach (var child in childNodes)
-        {
-            if (child.Bounds.Contains(primitive.position))
-            {
-                child.AddPrimitiveDirectly(primitive);
-                break;
-            }
-        }
-    }
-
-    private void AssignPrimitivesToThisLeaf()
-    {
-        foreach (var p in localPrimitives)
-        {
-            var subscriber = p.GetComponent<SDFPrimitiveSubscriber>();
-            if (subscriber != null) subscriber.SetCurrentLeafNode(this);
-        }
-    }
+    // CLEANED UP: Completely removed the redundant single-assignment AssignPrimitivesToThisLeaf() method.
+    // Primitives handle tracking via their own occupiedNodes list mapping now.
 
     // --- (Keep your exact UpdateClusterLifecycle and ClearCluster methods here...)
     // Manages the creation, removal, parenting, and sizing of the volume rendering container
@@ -183,6 +219,11 @@ public class SDFOctreeNode
         if (localPrimitives.Count == 0)
         {
             ClearCluster();
+            return;
+        }
+
+        if (SDFOctreeManager.IsShuttingDown)
+        {
             return;
         }
 
@@ -234,7 +275,24 @@ public class SDFOctreeNode
     {
         if (renderClusterInstance != null)
         {
-            Object.Destroy(renderClusterInstance);
+            // SAFETY CHECK: If the game is shutting down, let Unity handle cleanup naturally
+            if (SDFOctreeManager.Instance != null && SDFOctreeManager.IsShuttingDown)
+            {
+                renderClusterInstance = null;
+                clusterManager = null;
+                return;
+            }
+
+            // Normal runtime destruction
+            if (Application.isPlaying)
+            {
+                Object.Destroy(renderClusterInstance);
+            }
+            else
+            {
+                Object.DestroyImmediate(renderClusterInstance);
+            }
+
             renderClusterInstance = null;
             clusterManager = null;
         }

@@ -5,6 +5,10 @@ using System.Collections.Generic;
 [RequireComponent(typeof(BoxCollider))]
 public class SdfOctreeManager : MonoBehaviour
 {
+    private const int MAX_STANDALONE_PRIMITIVES = 64;
+    private const int MAX_CSG_INSTANCES = 32;
+    private const int MAX_TOTAL_CSG_NODES = 128;
+
     public static SdfOctreeManager Instance { get; private set; }
     public static bool IsShuttingDown { get; private set; } = false;
 
@@ -31,23 +35,29 @@ public class SdfOctreeManager : MonoBehaviour
     private static readonly int GlobalCapsuleDataID = Shader.PropertyToID("_GlobalCapsuleData");
     private static readonly int GlobalCapsuleCountID = Shader.PropertyToID("_GlobalCapsuleCount");
 
+    private static readonly int CharMatricesID = Shader.PropertyToID("_CharMatrices");
+    private static readonly int CharDataID = Shader.PropertyToID("_CharData");
+    private static readonly int CsgInstanceOffsetsID = Shader.PropertyToID("_CsgInstanceOffsets");
+    private static readonly int CsgAssetTypesID = Shader.PropertyToID("_CsgAssetTypes");
+    private static readonly int ActiveCsgInstanceCountID = Shader.PropertyToID("_ActiveCsgInstanceCount");
+
     // Reusable fixed array cache for GPU flushing
-    private readonly Matrix4x4[] gCubeMatrices = new Matrix4x4[64];
-    private readonly Vector4[] gCubeData = new Vector4[64];
-    private readonly Vector4[] gSpherePositions = new Vector4[64];
-    private readonly Vector4[] gSphereRadii = new Vector4[64];
-    private readonly Matrix4x4[] gCapsuleMatrices = new Matrix4x4[64];
-    private readonly Vector4[] gCapsuleData = new Vector4[64];
+    private readonly Matrix4x4[] gCubeMatrices = new Matrix4x4[MAX_STANDALONE_PRIMITIVES];
+    private readonly Vector4[] gCubeData = new Vector4[MAX_STANDALONE_PRIMITIVES];
+    private readonly Vector4[] gSpherePositions = new Vector4[MAX_STANDALONE_PRIMITIVES];
+    private readonly Vector4[] gSphereRadii = new Vector4[MAX_STANDALONE_PRIMITIVES];
+    private readonly Matrix4x4[] gCapsuleMatrices = new Matrix4x4[MAX_STANDALONE_PRIMITIVES];
+    private readonly Vector4[] gCapsuleData = new Vector4[MAX_STANDALONE_PRIMITIVES];
+
+    private readonly Matrix4x4[] charMatrices = new Matrix4x4[MAX_TOTAL_CSG_NODES];
+    private readonly Vector4[] charData = new Vector4[MAX_TOTAL_CSG_NODES];
+    private readonly float[] csgInstanceOffsets = new float[MAX_CSG_INSTANCES];
+    private readonly float[] csgAssetTypes = new float[MAX_CSG_INSTANCES];
 
     private List<SdfPrimitiveSubscriber> activeCubes = new List<SdfPrimitiveSubscriber>();
     private List<SdfPrimitiveSubscriber> activeSpheres = new List<SdfPrimitiveSubscriber>();
     private List<SdfPrimitiveSubscriber> activeCapsules = new List<SdfPrimitiveSubscriber>();
-
     private static List<SdfCsgTreeRootInstance> activeInstances = new List<SdfCsgTreeRootInstance>();
-
-    // Global flat arrays sent directly to the uniform slots
-    private Matrix4x4[] charMatrices = new Matrix4x4[64];
-    private Vector4[] charData = new Vector4[64];
 
     public static void RegisterCsgInstance(SdfCsgTreeRootInstance instance)
     {
@@ -108,11 +118,11 @@ public class SdfOctreeManager : MonoBehaviour
 
     void Update()
     {
-        if (!Application.isPlaying)
-        {
+        //if (!Application.isPlaying)
+        //{
             RefreshEditorPrimitiveBuffers();
             UpdateCsgBuffers();
-        }
+        //}
     }
 
     private void RefreshEditorPrimitiveBuffers()
@@ -142,7 +152,7 @@ public class SdfOctreeManager : MonoBehaviour
     void UpdateGlobalShaderBuffers()
     {
         // update cubes
-        int cubeCount = Mathf.Min(activeCubes.Count, 64);
+        int cubeCount = Mathf.Min(activeCubes.Count, MAX_STANDALONE_PRIMITIVES);
         for (int i = 0; i < cubeCount; i++)
         {
             if (activeCubes[i] != null)
@@ -156,7 +166,7 @@ public class SdfOctreeManager : MonoBehaviour
         }
 
         // update spheres
-        int sphereCount = Mathf.Min(activeSpheres.Count, 64);
+        int sphereCount = Mathf.Min(activeSpheres.Count, MAX_STANDALONE_PRIMITIVES);
         for (int j = 0; j < sphereCount; j++)
         {
             if (activeSpheres[j] != null)
@@ -171,7 +181,7 @@ public class SdfOctreeManager : MonoBehaviour
         }
         
         // update capsules
-        int capsuleCount = Mathf.Min(activeCapsules.Count, 64);
+        int capsuleCount = Mathf.Min(activeCapsules.Count, MAX_STANDALONE_PRIMITIVES);
         for (int k = 0; k < capsuleCount; k++)
         {
             if (activeCapsules[k] != null)
@@ -220,15 +230,13 @@ public class SdfOctreeManager : MonoBehaviour
         Shader.SetGlobalInt(GlobalCapsuleCountID, capsuleCount);
     }
 
-    private float[] csgInstanceOffsets = new float[16];
-
     void UpdateCsgBuffers()
     {
         int currentBufferPtr = 0;
-        int instanceCount = Mathf.Min(activeInstances.Count, 16);
+        int instanceCount = Mathf.Min(activeInstances.Count, MAX_CSG_INSTANCES);
 
         // Initialize clean fallbacks for the entire global block buffer
-        for (int i = 0; i < 64; i++)
+        for (int i = 0; i < MAX_CSG_INSTANCES; i++)
         {
             charMatrices[i] = Matrix4x4.identity;
             charData[i] = new Vector4(0f, 0f, 0f, -1f); 
@@ -241,53 +249,16 @@ public class SdfOctreeManager : MonoBehaviour
             // Track exactly where this specific instance starts in our global heap
             instance.globalBufferStartIndex = currentBufferPtr;
             csgInstanceOffsets[instanceIdx] = (float)currentBufferPtr;
-
-            for (int i = 0; i < instance.flattenedPrimitives.Count; i++)
-            {
-                if (currentBufferPtr >= 64) break; // Global buffer limit guard
-
-                var node = instance.flattenedPrimitives[i];
-                
-                // 🚀 Skip group structures or unpopulated elements exactly like your context menu did
-                if (node.isGroupNode || node.primitiveSubscriber == null) continue;
-
-                var prim = node.primitiveSubscriber;
-                Transform t = prim.transform;
-
-                // 🚀 Bring in your exact shape extraction logic:
-                if (prim.IsCube())
-                {
-                    charMatrices[currentBufferPtr] = Matrix4x4.TRS(t.position, t.rotation, Vector3.one).inverse;
-                    Vector3 halfExtents = t.lossyScale * 0.5f;
-                    charData[currentBufferPtr] = new Vector4(halfExtents.x, halfExtents.y, halfExtents.z, 0f);
-                }
-                else if (prim.IsSphere())
-                {
-                    charMatrices[currentBufferPtr] = Matrix4x4.TRS(t.position, Quaternion.identity, Vector3.one).inverse;
-                    float radius = Mathf.Max(t.lossyScale.x, Mathf.Max(t.lossyScale.y, t.lossyScale.z)) * 0.5f;
-                    charData[currentBufferPtr] = new Vector4(radius, 0f, 0f, 1.0f); // Type flag indicator
-                }
-                else if (prim.IsCapsule())
-                {
-                    prim.GetCapsuleLocalDimensions(out float r, out float h, out int dir);
-                    Vector3 ls = t.lossyScale;
-                    charMatrices[currentBufferPtr] = Matrix4x4.TRS(t.position, t.rotation, Vector3.one).inverse;
-
-                    float worldRadius = r * (dir == 1 ? Mathf.Max(Mathf.Abs(ls.x), Mathf.Abs(ls.z)) : (dir == 0 ? Mathf.Max(Mathf.Abs(ls.y), Mathf.Abs(ls.z)) : Mathf.Max(Mathf.Abs(ls.x), Mathf.Abs(ls.y))));
-                    float worldHeight = h * (dir == 0 ? Mathf.Abs(ls.x) : (dir == 1 ? Mathf.Abs(ls.y) : Mathf.Abs(ls.z)));
-                    charData[currentBufferPtr] = new Vector4(worldRadius, worldHeight, (float)dir, 1.0f);
-                }
-
-                currentBufferPtr++;
-            }
+            csgAssetTypes[instanceIdx] = (float)instance.assetType;
+            currentBufferPtr = instance.PackDataIntoBuffers(charMatrices, charData, currentBufferPtr, MAX_TOTAL_CSG_NODES);
         }
 
         // Send everything packed together down to the shader uniform locations
-        Shader.SetGlobalMatrixArray("_CharMatrices", charMatrices);
-        Shader.SetGlobalVectorArray("_CharData", charData);
-        
-        Shader.SetGlobalFloatArray("_CsgInstanceOffsets", csgInstanceOffsets);
-        Shader.SetGlobalInt("_ActiveCsgInstanceCount", instanceCount);
+        Shader.SetGlobalMatrixArray(CharMatricesID, charMatrices);
+        Shader.SetGlobalVectorArray(CharDataID, charData);
+        Shader.SetGlobalFloatArray(CsgInstanceOffsetsID, csgInstanceOffsets);
+        Shader.SetGlobalFloatArray(CsgAssetTypesID, csgAssetTypes);
+        Shader.SetGlobalInt(ActiveCsgInstanceCountID, instanceCount);
     }
 
     public SdfOctreeNode FindLeafNodeForPosition(Vector3 position)

@@ -9,9 +9,8 @@ using UnityEditor;
 
 public class SdfCsgTreeBaker : MonoBehaviour
 {
-    public string characterFunctionName = "GetCustomCharacterDist";
+    public string assetName = "CustomCharacter";
 
-    [ContextMenu("Bake Tree to HLSL File")]
     public void BakeToShaderFile()
     {
         SdfCsgNode rootNode = GetComponent<SdfCsgNode>();
@@ -21,9 +20,10 @@ public class SdfCsgTreeBaker : MonoBehaviour
             return;
         }
 
+        string functionName = $"Get{assetName}Dist";
         StringBuilder sb = new StringBuilder();
         sb.AppendLine("// --- AUTOMATICALLY GENERATED CSG TREE CODE - DO NOT EDIT MANUALLY ---");
-        sb.AppendLine($"float {characterFunctionName}(float3 p, int baseIdx)");
+        sb.AppendLine($"float {functionName}(float3 p, int baseIdx, float smoothness)");
         sb.AppendLine("{");
 
         int primitiveCounter = 0;
@@ -36,7 +36,7 @@ public class SdfCsgTreeBaker : MonoBehaviour
         sb.AppendLine("}");
 
         // Save directly to your Assets folder so the shader can see it immediately
-        string filePath = Path.Combine(Application.dataPath, "Shaders/CustomCharacterSdf.hlsl");
+        string filePath = Path.Combine(Application.dataPath, $"Shaders/{assetName}.hlsl");
         
         // Ensure directory exists
         string directory = Path.GetDirectoryName(filePath);
@@ -55,7 +55,6 @@ public class SdfCsgTreeBaker : MonoBehaviour
         if (!node.isGroupNode)
         {
             var prim = node.primitiveSubscriber;
-
             if (prim == null)
             {
                 Debug.LogError($"[Baker Error] Leaf node '{node.gameObject.name}' is missing its Primitive Subscriber reference!", node);
@@ -63,38 +62,27 @@ public class SdfCsgTreeBaker : MonoBehaviour
             }
 
             string primVar = $"prim_{primCount}";
-
-            // Pull the clean, matching matrices and data layouts from the primitive tracking structure
             sb.AppendLine($"    float3 localP_{primCount} = mul(_CharMatrices[baseIdx + {primCount}], float4(p, 1.0)).xyz;");
 
             if (prim.IsCube())
-            {
                 sb.AppendLine($"    float prim_{primCount} = DistanceToBoxLocal(localP_{primCount}, _CharData[baseIdx + {primCount}].xyz);");
-            }
             else if (prim.IsSphere())
-            {
-                // Spheres pull their calculated radius value from vector configuration data
                 sb.AppendLine($"    float {primVar} = length(localP_{primCount}) - _CharData[baseIdx + {primCount}].x;");
-            }
             else if (prim.IsCapsule())
-            {
-                // Capsules get their unwarped local spaces, world radius, world height, and axis direction index natively!
                 sb.AppendLine($"    float {primVar} = DistanceToCapsuleLocal(localP_{primCount}, _CharData[baseIdx + {primCount}].x, _CharData[baseIdx + {primCount}].y, (int)_CharData[baseIdx + {primCount}].z);");
-            }
 
             primCount++;
             return primVar;
         }
 
-        // (Rest of the cascading group operator evaluation logic remains identical...)
+        // Gather all operational CSG children, jumping through raw bones seamlessly
+        List<SdfCsgNode> validCsgChildren = new List<SdfCsgNode>();
+        GatherCsgChildren(node.transform, validCsgChildren);
+
         List<string> childVariables = new List<string>();
-        for (int i = 0; i < node.transform.childCount; i++)
+        foreach (var childNode in validCsgChildren)
         {
-            var childNode = node.transform.GetChild(i).GetComponent<SdfCsgNode>();
-            if (childNode != null && childNode.gameObject.activeInHierarchy)
-            {
-                childVariables.Add(ProcessNodeString(childNode, sb, ref primCount, ref stepCount));
-            }
+            childVariables.Add(ProcessNodeString(childNode, sb, ref primCount, ref stepCount));
         }
 
         if (childVariables.Count == 0) return "10000.0";
@@ -105,15 +93,67 @@ public class SdfCsgTreeBaker : MonoBehaviour
         {
             string nextStepVar = $"step_{stepCount++}";
             if (node.groupOperation == CSGGroupOp.Subtraction)
-                sb.AppendLine($"    float {nextStepVar} = max({currentAccumulator}, -({childVariables[j]}));");
+                sb.AppendLine($"    float {nextStepVar} = smax({currentAccumulator}, -({childVariables[j]}), smoothness);");
             else if (node.groupOperation == CSGGroupOp.Intersection)
-                sb.AppendLine($"    float {nextStepVar} = max({currentAccumulator}, {childVariables[j]});");
+                sb.AppendLine($"    float {nextStepVar} = smax({currentAccumulator}, {childVariables[j]}, smoothness);");
             else
-                sb.AppendLine($"    float {nextStepVar} = min({currentAccumulator}, {childVariables[j]});");
+                sb.AppendLine($"    float {nextStepVar} = smin({currentAccumulator}, {childVariables[j]}, smoothness);");
             
             currentAccumulator = nextStepVar;
         }
 
         return currentAccumulator;
     }
+
+    // 🛠️ Helper to dive deep past bones to collect the immediate operational nodes below this group
+    private void GatherCsgChildren(Transform parentTransform, List<SdfCsgNode> results)
+    {
+        for (int i = 0; i < parentTransform.childCount; i++)
+        {
+            Transform child = parentTransform.GetChild(i);
+            if (!child.gameObject.activeInHierarchy) continue;
+
+            var csgNode = child.GetComponent<SdfCsgNode>();
+            if (csgNode != null)
+            {
+                // Found a valid operational node boundary! Add it and stop digging down this specific branch
+                results.Add(csgNode);
+            }
+            else
+            {
+                // It's a raw bone or model wrapper container—keep looking deeper down its hierarchy
+                GatherCsgChildren(child, results);
+            }
+        }
+    }
 }
+
+#if UNITY_EDITOR
+[CustomEditor(typeof(SdfCsgTreeBaker))]
+public class SdfCsgTreeBakerEditor : Editor
+{
+    public override void OnInspectorGUI()
+    {
+        // Draw the default inspector variables (like assetName string)
+        DrawDefaultInspector();
+
+        EditorGUILayout.Space(10);
+        
+        // Change button color to make it visually distinct
+        GUI.backgroundColor = new Color(0.3f, 0.6f, 0.9f); 
+
+        // 🚀 Render the explicit button layout
+        if (GUILayout.Button("Bake Tree to HLSL File", GUILayout.Height(35)))
+        {
+            // Cast the target source object safely
+            SdfCsgTreeBaker baker = (SdfCsgTreeBaker)target;
+            
+            // Execute the processing engine immediately on click
+            baker.BakeToShaderFile();
+        }
+        
+        // Reset color space configuration back to default state
+        GUI.backgroundColor = Color.white;
+    }
+}
+#endif

@@ -222,8 +222,8 @@ Transform:
   m_GameObject: {fileID: 2925399801299030169}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: -1.133, z: 0}
-  m_LocalScale: {x: 0.15, y: 1.5230019, z: 0.15}
+  m_LocalPosition: {x: 0, y: -1.01, z: 0}
+  m_LocalScale: {x: 0.15, y: 1.0489827, z: 0.15}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 3408160445131095080}
@@ -544,7 +544,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3f84271afa4eadf4bb26134adc7ab68f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SdfCsgTreeBaker
-  characterFunctionName: GetSwordDist
+  assetName: Sword
 --- !u!114 &2540090052339526782
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -557,6 +557,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a5238d00150d8904da55563276856584, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SdfCsgTreeRootInstance
+  assetType: 0
+  globalBufferStartIndex: 10
+  flattenedPrimitives:
+  - {fileID: 7088789537277625276}
+  - {fileID: 2701374175755212184}
+  - {fileID: 6503983117097005673}
+  - {fileID: 3491470267743859432}
+  - {fileID: 7401554952686954287}
+  - {fileID: 5383677149294626852}
+  - {fileID: 3997914964707535600}
+  - {fileID: 7221701873137689155}
 --- !u!1 &5073076862994438153
 GameObject:
   m_ObjectHideFlags: 0
@@ -780,7 +791,7 @@ Transform:
   m_GameObject: {fileID: 8337902050258490695}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: -2.288, z: 0}
+  m_LocalPosition: {x: 0, y: -1.685, z: 0}
   m_LocalScale: {x: 0.23144065, y: 0.812997, z: 0.23271872}
   m_ConstrainProportionsScale: 0
   m_Children: []

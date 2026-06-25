@@ -1,18 +1,16 @@
 using UnityEngine;
 using System.Collections.Generic;
 
+public enum CSGAssetType { Sword = 0, Character = 1, SwordCharacter = 2 }
+
 [ExecuteAlways]
 public class SdfCsgTreeRootInstance : MonoBehaviour
 {
-    public int primitiveCount = 4;
+    public CSGAssetType assetType = CSGAssetType.Character;
     [HideInInspector] public int globalBufferStartIndex = -1;
 
     public List<SdfCsgNode> flattenedPrimitives = new List<SdfCsgNode>();
     private readonly List<SdfOctreeNode> occupiedOctreeNodes = new List<SdfOctreeNode>();
-
-    // Dedicated runtime parameter blocks sent over to our specific custom character shader instance
-    private readonly Matrix4x4[] charMatrices = new Matrix4x4[16];
-    private readonly Vector4[] charData = new Vector4[16];
 
     private Vector3 lastPosition;
     private Quaternion lastRotation;
@@ -35,6 +33,7 @@ public class SdfCsgTreeRootInstance : MonoBehaviour
     void OnDisable()
     {
         SdfOctreeManager.UnregisterCsgInstance(this);
+        CleanUp();
     }
 
     void LateUpdate()
@@ -46,7 +45,6 @@ public class SdfCsgTreeRootInstance : MonoBehaviour
             lastPosition = transform.position;
             lastRotation = transform.rotation;
             
-            //UpdateInternalArrays();
             RecalculateOctreePresence();
         }
     }
@@ -68,84 +66,53 @@ public class SdfCsgTreeRootInstance : MonoBehaviour
                 node.primitiveSubscriber.isPartOfCsgTree = true;
             }
         }
-
-        UpdateInternalArrays();
     }
 
-    [ContextMenu("fuck shaders")]
-    private void UpdateInternalArrays()
+    public int PackDataIntoBuffers(Matrix4x4[] globalMatrices, Vector4[] globalData, int startBufferPtr, int maxBufferLimit)
     {
-        // 1. (Keep your matrix and vector data packaging logic exactly the same...)
-        int idx = 0;
-        for(int i = 0; i < 16; i++)
-        {
-            charMatrices[i] = Matrix4x4.identity;
-            charData[i] = new Vector4(0f, 0f, 0f, -1f); 
-        }
-
         if (flattenedPrimitives.Count == 0)
         {
             InitializeHierarchy();
         }
 
+        int idx = startBufferPtr;
+
         foreach (var node in flattenedPrimitives)
         {
-
             if (node.isGroupNode || node.primitiveSubscriber == null) continue;
-            if (idx >= 16) break;
-
-            Debug.Log($"{idx}-th primitive: {node.name}");
+            if (idx >= maxBufferLimit) break; // Use the manager's maximum constant limit guard
 
             var prim = node.primitiveSubscriber;
             Transform t = prim.transform;
 
+            // Populate the MANAGER'S flat global array directly
             if (prim.IsCube())
             {
-                charMatrices[idx] = Matrix4x4.TRS(t.position, t.rotation, Vector3.one).inverse;
+                globalMatrices[idx] = Matrix4x4.TRS(t.position, t.rotation, Vector3.one).inverse;
                 Vector3 halfExtents = t.lossyScale * 0.5f;
-                charData[idx] = new Vector4(halfExtents.x, halfExtents.y, halfExtents.z, 0f);
+                globalData[idx] = new Vector4(halfExtents.x, halfExtents.y, halfExtents.z, 0f); // Type = 0
             }
             else if (prim.IsSphere())
             {
-                charMatrices[idx] = Matrix4x4.TRS(t.position, Quaternion.identity, Vector3.one).inverse;
+                globalMatrices[idx] = Matrix4x4.TRS(t.position, Quaternion.identity, Vector3.one).inverse;
                 float radius = Mathf.Max(t.lossyScale.x, Mathf.Max(t.lossyScale.y, t.lossyScale.z)) * 0.5f;
-                charData[idx] = new Vector4(radius, 0f, 0f, 1.0f);
+                globalData[idx] = new Vector4(radius, 0f, 0f, 1.0f); // Type = 1
             }
             else if (prim.IsCapsule())
             {
                 prim.GetCapsuleLocalDimensions(out float r, out float h, out int dir);
                 Vector3 ls = t.lossyScale;
-                charMatrices[idx] = Matrix4x4.TRS(t.position, t.rotation, Vector3.one).inverse;
+                globalMatrices[idx] = Matrix4x4.TRS(t.position, t.rotation, Vector3.one).inverse;
 
                 float worldRadius = r * (dir == 1 ? Mathf.Max(Mathf.Abs(ls.x), Mathf.Abs(ls.z)) : (dir == 0 ? Mathf.Max(Mathf.Abs(ls.y), Mathf.Abs(ls.z)) : Mathf.Max(Mathf.Abs(ls.x), Mathf.Abs(ls.y))));
                 float worldHeight = h * (dir == 0 ? Mathf.Abs(ls.x) : (dir == 1 ? Mathf.Abs(ls.y) : Mathf.Abs(ls.z)));
-                charData[idx] = new Vector4(worldRadius, worldHeight, (float)dir, 1.0f);
+                globalData[idx] = new Vector4(worldRadius, worldHeight, (float)dir, 1.0f); // Type = 2
             }
             idx++;
         }
 
-        // 1. Resolve our manager instance reference safely whether playing or editing
-        var manager = SdfOctreeManager.Instance;
-        
-        #if UNITY_EDITOR
-        if (manager == null)
-        {
-            // Fallback for editor mode when Awake() hasn't run yet
-            manager = FindFirstObjectByType<SdfOctreeManager>();
-        }
-        #endif
-
-        if (manager == null)
-        {
-            Debug.LogWarning("⚠️ SdfOctreeManager could not be found anywhere in the active scene! Floated data directly to global registers.");
-            return;
-        }
-
-        Debug.Log("printing debug info");
-        Debug.Log($"matrices len: {idx}");
-        
-        Shader.SetGlobalMatrixArray("_CharMatrices", charMatrices);
-        Shader.SetGlobalVectorArray("_CharData", charData);
+        // Return the new pointer position so the manager knows how many spots we consumed!
+        return idx; 
     }
 
     [ContextMenu("🔍 Debug Print Flat Hierarchy")]
@@ -228,29 +195,6 @@ public class SdfCsgTreeRootInstance : MonoBehaviour
         SdfOctreeManager.Instance.TriggerCollapseCheck();
     }
 
-    [ContextMenu("Force Isolate and Purge Child Subscribers")]
-    public void ForcePurgeChildSubscribers()
-    {
-        // Find every child subscriber, even if deep in the hierarchy
-        var childPrimitives = GetComponentsInChildren<SdfPrimitiveSubscriber>(true);
-        
-        foreach (var prim in childPrimitives)
-        {
-            // 1. Permanently flag them as isolated tree components
-            prim.isPartOfCsgTree = true;
-            
-            // 2. Forcefully strip them from any octree node they might be polluting
-            prim.RecalculateTreePresence(); // Calling this while isPartOfCsgTree is handled above won't clear, let's clear directly:
-        }
-        
-        // Explicitly wipe out registrations manually to be 100% safe
-        InitializeHierarchy();
-        RecalculateOctreePresence();
-        
-        Debug.Log("Cleaned up and isolated all sub-limbs successfully!");
-    }
-
-    //void OnDisable() => CleanUp();
     void OnDestroy() => CleanUp();
 
     private void CleanUp()

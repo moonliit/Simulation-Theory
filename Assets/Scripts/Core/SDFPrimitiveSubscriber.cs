@@ -4,11 +4,13 @@ using System.Collections.Generic;
 public class SdfPrimitiveSubscriber : MonoBehaviour
 {
     public enum PrimitiveType { Cube, Sphere, Capsule }
-    public enum OperationType { Union, Intersection, Subtraction }
     
     [Header("Primitive Settings")]
     [SerializeField] public PrimitiveType shapeType = PrimitiveType.Cube;
-    [SerializeField] public OperationType operationType = OperationType.Union;
+
+    [Header("Hierarchy Coupling")]
+    [Tooltip("If true, this primitive will not touch the Octree Manager directly. A parent CSG Tree Node will handle its bounds and data instead.")]
+    public bool isPartOfCsgTree = false;
 
     // Track ALL nodes that this primitive physically intersects with
     private readonly List<SdfOctreeNode> occupiedNodes = new List<SdfOctreeNode>();
@@ -19,20 +21,30 @@ public class SdfPrimitiveSubscriber : MonoBehaviour
     void Start()
     {
         var mesh = GetComponent<MeshRenderer>();
-        mesh.enabled = false;
+        if (mesh != null) mesh.enabled = false;
 
         lastPosition = transform.position;
         lastScale = transform.lossyScale;
-        RecalculateTreePresence();
+
+        if (GetComponent<SdfCsgNode>() != null || GetComponentInParent<SdfCsgNode>() != null)
+        {
+            isPartOfCsgTree = true;
+        }
+
+        if (!isPartOfCsgTree)
+        {
+            RecalculateTreePresence();
+        }
     }
 
     void Update()
     {
+        if (isPartOfCsgTree) return;
+
         if (transform.position != lastPosition || transform.lossyScale != lastScale)
         {
             lastPosition = transform.position;
             lastScale = transform.lossyScale;
-
             RecalculateTreePresence();
         }
     }
@@ -141,8 +153,4 @@ public class SdfPrimitiveSubscriber : MonoBehaviour
     public bool IsCube() => shapeType == PrimitiveType.Cube;
     public bool IsSphere() => shapeType == PrimitiveType.Sphere;
     public bool IsCapsule() => shapeType == PrimitiveType.Capsule;
-
-    public bool IsUnion() => operationType == OperationType.Union;
-    public bool IsIntersection() => operationType == OperationType.Intersection;
-    public bool IsSubtraction() => operationType == OperationType.Subtraction;
 }

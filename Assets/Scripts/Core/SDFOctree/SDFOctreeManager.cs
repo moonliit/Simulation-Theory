@@ -43,6 +43,22 @@ public class SdfOctreeManager : MonoBehaviour
     private List<SdfPrimitiveSubscriber> activeSpheres = new List<SdfPrimitiveSubscriber>();
     private List<SdfPrimitiveSubscriber> activeCapsules = new List<SdfPrimitiveSubscriber>();
 
+    private static List<SdfCsgTreeRootInstance> activeInstances = new List<SdfCsgTreeRootInstance>();
+
+    // Global flat arrays sent directly to the uniform slots
+    private Matrix4x4[] charMatrices = new Matrix4x4[64];
+    private Vector4[] charData = new Vector4[64];
+
+    public static void RegisterCsgInstance(SdfCsgTreeRootInstance instance)
+    {
+        if (!activeInstances.Contains(instance)) activeInstances.Add(instance);
+    }
+
+    public static void UnregisterCsgInstance(SdfCsgTreeRootInstance instance)
+    {
+        activeInstances.Remove(instance);
+    }
+
     void Awake()
     {
         Instance = this;
@@ -62,9 +78,12 @@ public class SdfOctreeManager : MonoBehaviour
         
         activeCubes.Clear();
         activeSpheres.Clear();
+        activeCapsules.Clear();
 
         foreach (var obj in baselineObjects) 
         {
+            if (obj.isPartOfCsgTree) continue;
+
             population.Add(obj.transform);
             
             // Segregate by shape properties automatically
@@ -92,6 +111,7 @@ public class SdfOctreeManager : MonoBehaviour
         if (!Application.isPlaying)
         {
             RefreshEditorPrimitiveBuffers();
+            UpdateCsgBuffers();
         }
     }
 
@@ -106,6 +126,7 @@ public class SdfOctreeManager : MonoBehaviour
         foreach (var obj in baselineObjects) 
         {
             if (obj == null || !obj.gameObject.activeInHierarchy) continue;
+            if (obj.isPartOfCsgTree) continue;
             
             if (obj.IsSphere())
                 activeSpheres.Add(obj);
@@ -126,9 +147,11 @@ public class SdfOctreeManager : MonoBehaviour
         {
             if (activeCubes[i] != null)
             {
-                gCubeMatrices[i] = activeCubes[i].transform.worldToLocalMatrix;
-                float opValue = (float)activeCubes[i].operationType;
-                gCubeData[i] = new Vector4(opValue, 0, 0, 0);
+                Transform t = activeCubes[i].transform;
+                Matrix4x4 rigidMatrix = Matrix4x4.TRS(t.position, t.rotation, Vector3.one);
+                gCubeMatrices[i] = rigidMatrix.inverse;
+                Vector3 worldHalfExtents = t.lossyScale * 0.5f;
+                gCubeData[i] = new Vector4(worldHalfExtents.x, worldHalfExtents.y, worldHalfExtents.z, 0);
             }
         }
 
@@ -143,8 +166,7 @@ public class SdfOctreeManager : MonoBehaviour
                     activeSpheres[j].transform.lossyScale.x,
                     Mathf.Max(activeSpheres[j].transform.lossyScale.y, activeSpheres[j].transform.lossyScale.z)
                 ) * 0.5f;
-                float opValue = (float)activeCubes[j].operationType;
-                gSphereRadii[j] = new Vector4(radius, opValue, 0, 0);
+                gSphereRadii[j] = new Vector4(radius, 0, 0, 0);
             }
         }
         
@@ -155,14 +177,11 @@ public class SdfOctreeManager : MonoBehaviour
             if (activeCapsules[k] != null)
             {
                 Transform t = activeCapsules[k].transform;
-
-                // 💡 FIX: Pass a rigid matrix containing ONLY translation and rotation (no scale warp!)
                 Matrix4x4 rigidMatrix = Matrix4x4.TRS(t.position, t.rotation, Vector3.one);
                 gCapsuleMatrices[k] = rigidMatrix.inverse;
 
                 activeCapsules[k].GetCapsuleLocalDimensions(out float radius, out float height, out int direction);
 
-                // 💡 FIX: Compute true world-space dimensions matching Unity's CapsuleCollider behavior
                 Vector3 lossyScale = t.lossyScale;
                 float worldRadius = radius;
                 float worldHeight = height;
@@ -183,8 +202,7 @@ public class SdfOctreeManager : MonoBehaviour
                     worldHeight = height * Mathf.Abs(lossyScale.z);
                 }
 
-                float opValue = (float)activeCubes[k].operationType;
-                gCapsuleData[k] = new Vector4(worldRadius, worldHeight, (float)direction, opValue);
+                gCapsuleData[k] = new Vector4(worldRadius, worldHeight, (float)direction, 0);
             }
         }
 
@@ -200,6 +218,76 @@ public class SdfOctreeManager : MonoBehaviour
         Shader.SetGlobalMatrixArray(GlobalCapsuleMatricesID, gCapsuleMatrices);
         Shader.SetGlobalVectorArray(GlobalCapsuleDataID, gCapsuleData);
         Shader.SetGlobalInt(GlobalCapsuleCountID, capsuleCount);
+    }
+
+    private float[] csgInstanceOffsets = new float[16];
+
+    void UpdateCsgBuffers()
+    {
+        int currentBufferPtr = 0;
+        int instanceCount = Mathf.Min(activeInstances.Count, 16);
+
+        // Initialize clean fallbacks for the entire global block buffer
+        for (int i = 0; i < 64; i++)
+        {
+            charMatrices[i] = Matrix4x4.identity;
+            charData[i] = new Vector4(0f, 0f, 0f, -1f); 
+        }
+
+        for (int instanceIdx = 0; instanceIdx < instanceCount; instanceIdx++)
+        {
+            var instance = activeInstances[instanceIdx];
+
+            // Track exactly where this specific instance starts in our global heap
+            instance.globalBufferStartIndex = currentBufferPtr;
+            csgInstanceOffsets[instanceIdx] = (float)currentBufferPtr;
+
+            for (int i = 0; i < instance.flattenedPrimitives.Count; i++)
+            {
+                if (currentBufferPtr >= 64) break; // Global buffer limit guard
+
+                var node = instance.flattenedPrimitives[i];
+                
+                // 🚀 Skip group structures or unpopulated elements exactly like your context menu did
+                if (node.isGroupNode || node.primitiveSubscriber == null) continue;
+
+                var prim = node.primitiveSubscriber;
+                Transform t = prim.transform;
+
+                // 🚀 Bring in your exact shape extraction logic:
+                if (prim.IsCube())
+                {
+                    charMatrices[currentBufferPtr] = Matrix4x4.TRS(t.position, t.rotation, Vector3.one).inverse;
+                    Vector3 halfExtents = t.lossyScale * 0.5f;
+                    charData[currentBufferPtr] = new Vector4(halfExtents.x, halfExtents.y, halfExtents.z, 0f);
+                }
+                else if (prim.IsSphere())
+                {
+                    charMatrices[currentBufferPtr] = Matrix4x4.TRS(t.position, Quaternion.identity, Vector3.one).inverse;
+                    float radius = Mathf.Max(t.lossyScale.x, Mathf.Max(t.lossyScale.y, t.lossyScale.z)) * 0.5f;
+                    charData[currentBufferPtr] = new Vector4(radius, 0f, 0f, 1.0f); // Type flag indicator
+                }
+                else if (prim.IsCapsule())
+                {
+                    prim.GetCapsuleLocalDimensions(out float r, out float h, out int dir);
+                    Vector3 ls = t.lossyScale;
+                    charMatrices[currentBufferPtr] = Matrix4x4.TRS(t.position, t.rotation, Vector3.one).inverse;
+
+                    float worldRadius = r * (dir == 1 ? Mathf.Max(Mathf.Abs(ls.x), Mathf.Abs(ls.z)) : (dir == 0 ? Mathf.Max(Mathf.Abs(ls.y), Mathf.Abs(ls.z)) : Mathf.Max(Mathf.Abs(ls.x), Mathf.Abs(ls.y))));
+                    float worldHeight = h * (dir == 0 ? Mathf.Abs(ls.x) : (dir == 1 ? Mathf.Abs(ls.y) : Mathf.Abs(ls.z)));
+                    charData[currentBufferPtr] = new Vector4(worldRadius, worldHeight, (float)dir, 1.0f);
+                }
+
+                currentBufferPtr++;
+            }
+        }
+
+        // Send everything packed together down to the shader uniform locations
+        Shader.SetGlobalMatrixArray("_CharMatrices", charMatrices);
+        Shader.SetGlobalVectorArray("_CharData", charData);
+        
+        Shader.SetGlobalFloatArray("_CsgInstanceOffsets", csgInstanceOffsets);
+        Shader.SetGlobalInt("_ActiveCsgInstanceCount", instanceCount);
     }
 
     public SdfOctreeNode FindLeafNodeForPosition(Vector3 position)

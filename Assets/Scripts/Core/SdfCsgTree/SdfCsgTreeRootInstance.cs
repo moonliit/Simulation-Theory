@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 using System.Collections.Generic;
 
 public enum CSGAssetType { Sword = 0, Character = 1, SwordCharacter = 2 }
@@ -40,13 +41,13 @@ public class SdfCsgTreeRootInstance : MonoBehaviour
     {
         // If the character moves or rotates, we must update both our internal shape matrices 
         // and its registration inside the world octree partitions
-        if (transform.position != lastPosition || transform.rotation != lastRotation)
-        {
+        //if (transform.position != lastPosition || transform.rotation != lastRotation)
+        //{
             lastPosition = transform.position;
             lastRotation = transform.rotation;
             
             RecalculateOctreePresence();
-        }
+        //}
     }
 
     public void InitializeHierarchy()
@@ -180,6 +181,15 @@ public class SdfCsgTreeRootInstance : MonoBehaviour
         }
 
         if (validBoundsCount == 0) return;
+
+        // Tell the cache manager to update this volume space
+        if (SDFCacheManager.Instance != null)
+        {
+            // Optional: Clear out the indirection pointers of the grid before re-baking the updated positions
+            SDFCacheManager.Instance.ClearCachePipeline(); 
+            SDFCacheManager.Instance.UpdateGlobalShaderUniforms();
+            SDFCacheManager.Instance.BakeRegion(combinedBounds);
+        }
 
         // 3. Query our octree manager to discover which sectors intersect our compound character volume
         List<SdfOctreeNode> overlappingLeaves = new List<SdfOctreeNode>();

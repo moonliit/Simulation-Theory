@@ -69,11 +69,15 @@ public class SdfOctreeManager : MonoBehaviour
         activeInstances.Remove(instance);
     }
 
+    private SDFCacheManager cacheManager;
+
     void Awake()
     {
         Instance = this;
         boundaryCollider = GetComponent<BoxCollider>();
-        boundaryCollider.isTrigger = true; 
+        boundaryCollider.isTrigger = true;
+
+        cacheManager = FindFirstObjectByType<SDFCacheManager>(); 
     }
 
     void OnApplicationQuit()

@@ -36,7 +36,7 @@ public class SdfCsgTreeBaker : MonoBehaviour
         sb.AppendLine("}");
 
         // Save directly to your Assets folder so the shader can see it immediately
-        string filePath = Path.Combine(Application.dataPath, $"Shaders/{assetName}.hlsl");
+        string filePath = Path.Combine(Application.dataPath, $"Shaders/Generated/{assetName}.hlsl");
         
         // Ensure directory exists
         string directory = Path.GetDirectoryName(filePath);

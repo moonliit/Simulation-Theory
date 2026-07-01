@@ -17,9 +17,15 @@ float DistanceToSphere(float3 p, float3 center, float radius)
 float DistanceToCapsuleLocal(float3 localP, float radius, float height, int direction)
 {
     // Generate base axis vector depending on direction index (0=X, 1=Y, 2=Z)
+    /*1
     float3 dir = float3(0, 1, 0);
     if (direction == 0) dir = float3(1, 0, 0);
     if (direction == 2) dir = float3(0, 0, 1);
+    */
+
+    // Branchless selection using vector array indexing
+    float3 directions[3] = { float3(1,0,0), float3(0,1,0), float3(0,0,1) };
+    float3 dir = directions[clamp(direction, 0, 2)];
 
     float halfLineLen = (height * 0.5) - radius;
     halfLineLen = max(halfLineLen, 0.0);

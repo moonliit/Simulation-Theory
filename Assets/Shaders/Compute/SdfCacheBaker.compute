@@ -1,0 +1,161 @@
+#pragma kernel ClearIndirectionGrid
+#pragma kernel BakeBrick
+
+// --- GLOBAL BUFFERS ---
+#define MAX_STANDALONE_PRIMITIVES 64
+#define MAX_CSG_INSTANCES 32
+#define MAX_TOTAL_CSG_NODES 128
+
+uniform float4x4 _GlobalCubeMatrices[MAX_STANDALONE_PRIMITIVES];
+uniform float4 _GlobalCubeData[MAX_STANDALONE_PRIMITIVES]; 
+uniform int _GlobalCubeCount;
+
+uniform float4 _GlobalSpherePositions[MAX_STANDALONE_PRIMITIVES];
+uniform float4 _GlobalSphereRadii[MAX_STANDALONE_PRIMITIVES];   
+uniform int _GlobalSphereCount;
+
+uniform float4x4 _GlobalCapsuleMatrices[MAX_STANDALONE_PRIMITIVES];
+uniform float4 _GlobalCapsuleData[MAX_STANDALONE_PRIMITIVES]; 
+uniform int _GlobalCapsuleCount;
+
+uniform float4x4 _CharMatrices[MAX_TOTAL_CSG_NODES];
+uniform float4 _CharData[MAX_TOTAL_CSG_NODES];
+uniform int _ActiveCsgInstanceCount;
+uniform float _CsgInstanceOffsets[MAX_CSG_INSTANCES];
+uniform float _CsgAssetTypes[MAX_CSG_INSTANCES];
+
+// --- TEXTURE RESOURCES ---
+RWTexture3D<float> _WritableIndirectionGrid;
+RWTexture3D<float> _WritableBrickAtlas;
+
+// --- CONFIGURATION UNIFORMS ---
+uint _InvalidBrickValue;
+float3 _VolumeBoundsMin;
+float3 _VolumeBoundsMax;
+float3 _IndirectionRes;
+int3 _TargetGridCoords;
+float3 _AtlasRes;
+
+// Target variables specific to the Brick being baked
+uint _TargetBrickIndex;
+float3 _BrickMinWS;
+float3 _BrickMaxWS;
+
+// Pull in primitives and unrolled assets exactly like your fragment shader does!
+#include "../SDFPrimitives.hlsl"
+#include "../Generated/Sword.hlsl"
+#include "../Generated/Character.hlsl"
+#include "../Generated/SwordCharacter.hlsl"
+
+// Pure analytical evaluation matching your old GetSceneSDF exactly, but WITHOUT the wireframe tube conversion.
+// We cache the pure distance data; wireframe manipulation is handled later during the screen raymarch step.
+float GetRawSceneSDF(float3 p)
+{
+    float finalDist = 10000.0;
+
+    for (int instanceIdx = 0; instanceIdx < _ActiveCsgInstanceCount; instanceIdx++)
+    {
+        int baseBufferIndex = (int)_CsgInstanceOffsets[instanceIdx];
+        int assetType = (int)_CsgAssetTypes[instanceIdx];
+        float dInstance = 10000.0;
+        float smoothness = 0.25;
+
+        if (assetType == 0)      dInstance = GetSwordDist(p, baseBufferIndex, smoothness);
+        else if (assetType == 1) dInstance = GetCharacterDist(p, baseBufferIndex, smoothness);
+        else if (assetType == 2) dInstance = GetSwordCharacterDist(p, baseBufferIndex, smoothness);
+
+        finalDist = smin(finalDist, dInstance, 1.0);
+    }
+
+    // Unions
+    for (int i = 0; i < _GlobalCubeCount; i++)
+    {
+        if (_GlobalCubeData[i].w < 0.5) {
+            float3 localP = mul(_GlobalCubeMatrices[i], float4(p, 1.0)).xyz;
+            finalDist = smin(finalDist, DistanceToBoxLocal(localP, _GlobalCubeData[i].xyz), 1.0);
+        }
+    }
+    for (int j = 0; j < _GlobalSphereCount; j++)
+    {
+        if (_GlobalSphereRadii[j].y < 0.5) {
+            finalDist = smin(finalDist, DistanceToSphere(p, _GlobalSpherePositions[j].xyz, _GlobalSphereRadii[j].x), 1.0);
+        }
+    }
+    for (int k = 0; k < _GlobalCapsuleCount; k++)
+    {
+        if (_GlobalCapsuleData[k].w < 0.5) {
+            float3 localP = mul(_GlobalCapsuleMatrices[k], float4(p, 1.0)).xyz;
+            finalDist = smin(finalDist, DistanceToCapsuleLocal(localP, _GlobalCapsuleData[k].x, _GlobalCapsuleData[k].y, (int)_GlobalCapsuleData[k].z), 1.0);
+        }
+    }
+
+    // Subtractions
+    for (int j2 = 0; j2 < _GlobalSphereCount; j2++)
+    {
+        if (_GlobalSphereRadii[j2].y > 0.5) {
+            finalDist = max(finalDist, -DistanceToSphere(p, _GlobalSpherePositions[j2].xyz, _GlobalSphereRadii[j2].x));
+        }
+    }
+    for (int k2 = 0; k2 < _GlobalCapsuleCount; k2++)
+    {
+        if (_GlobalCapsuleData[k2].w > 0.5) {
+            float3 localP = mul(_GlobalCapsuleMatrices[k2], float4(p, 1.0)).xyz;
+            finalDist = max(finalDist, -DistanceToCapsuleLocal(localP, _GlobalCapsuleData[k2].x, _GlobalCapsuleData[k2].y, (int)_GlobalCapsuleData[k2].z));
+        }
+    }
+
+    return finalDist;
+}
+
+// KERNEL 1: Resets your pointer grid to blank states
+[numthreads(8, 8, 8)]
+void ClearIndirectionGrid(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id >= (uint3)_IndirectionRes)) return;
+    _WritableIndirectionGrid[id] = (float)_InvalidBrickValue;
+}
+
+
+// KERNEL 2: Evaluates mathematical models and saves them to an 4x4x4 physical voxel cache
+[numthreads(4, 4, 4)]
+void BakeBrick(uint3 id : SV_GroupThreadID)
+{
+    // Write the indirection grid mapping pointer once
+    if (all(id == 0))
+    {
+        _WritableIndirectionGrid[_TargetGridCoords] = (float)_TargetBrickIndex;
+    }
+
+    // Inside SdfCacheBaker.compute -> BakeBrick kernel:
+    uint bricksPerAxis = (uint)(_AtlasRes.x / 8.0);
+    uint bricksPerSlice = bricksPerAxis * bricksPerAxis;
+
+    uint3 brickOriginInAtlas = uint3(
+        (_TargetBrickIndex % bricksPerAxis) * 8,
+        ((_TargetBrickIndex / bricksPerAxis) % bricksPerAxis) * 8,
+        (_TargetBrickIndex / bricksPerSlice) * 8
+    );
+
+    // Loop over the sub-blocks to cover all 8 texels using our 4x4x4 layout threads
+    [unroll]
+    for (uint xOffset = 0; xOffset <= 4; xOffset += 4)
+    {
+        [unroll]
+        for (uint yOffset = 0; yOffset <= 4; yOffset += 4)
+        {
+            [unroll]
+            for (uint zOffset = 0; zOffset <= 4; zOffset += 4)
+            {
+                uint3 localTexel = id + uint3(xOffset, yOffset, zOffset);
+                uint3 targetAtlasVoxel = brickOriginInAtlas + localTexel;
+
+                // Scale normalized positions cleanly between 0.0 and 1.0 across the 8 items
+                float3 t = ((float3)localTexel + 0.5) / 7.0; 
+                float3 samplePositionWS = lerp(_BrickMinWS, _BrickMaxWS, t);
+
+                // Compute and cache the distance metric
+                _WritableBrickAtlas[targetAtlasVoxel] = GetRawSceneSDF(samplePositionWS);
+            }
+        }
+    }
+}

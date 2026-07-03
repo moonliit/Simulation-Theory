@@ -1,0 +1,221 @@
+#pragma kernel CSMain
+
+// --- SCREEN CACHE BUFFERS ---
+RWTexture2D<float4> _WritableScreenResult;
+
+// --- DYNAMIC VIEWPORT RESOLUTION (Strict Unsigned Integers) ---
+uint _ScreenWidth;
+uint _ScreenHeight;
+
+// --- CAMERA UNIFORMS & INVERSE MATRICES ---
+float3 _WorldSpaceCameraPos;
+float4x4 _InverseViewMatrix;
+float4x4 _InverseProjectionMatrix;
+float4 _ZBufferParams; // Custom or global depth decoding metrics
+
+// --- MODEL STYLING CONFIGURATIONS ---
+float4 _NeonColor;
+float _GlowIntensity;
+
+// --- 3D SPARSE TEXTURE STRUCTURES ---
+Texture3D<uint> _SDFIndirectionGrid;
+Texture3D<float> _SDFBrickAtlas;
+SamplerState sampler_SDFBrickAtlas; 
+
+// --- TRANSFORMATION VOLUME CONTAINER BOUNDS ---
+uniform float3 _VolumeBoundsMin;
+uniform float3 _VolumeBoundsMax;
+uniform float3 _IndirectionRes;
+uniform float3 _AtlasRes;
+
+// High-speed O(1) Sparse Texture Lookup
+float GetSceneSDF(float3 p)
+{
+    float3 volumeSizes = _VolumeBoundsMax - _VolumeBoundsMin;
+    float cellWidth = volumeSizes.x / max(_IndirectionRes.x, 1.0);
+
+    if (any(p < _VolumeBoundsMin) || any(p > _VolumeBoundsMax))
+    {
+        return cellWidth;
+    }
+
+    float3 volumeUV = (p - _VolumeBoundsMin) / volumeSizes;
+    int3 indirectionCoords = floor(volumeUV * _IndirectionRes);
+    indirectionCoords = clamp(indirectionCoords, int3(0, 0, 0), int3(_IndirectionRes) - 1);
+
+    uint brickIndex = _SDFIndirectionGrid.Load(int4(indirectionCoords, 0));
+    if (brickIndex == 0)
+    {
+        return cellWidth / 2.0;
+    }
+
+    uint3 atlasResPixels = (uint3)_AtlasRes;
+    uint bricksPerAxisX = atlasResPixels.x / 8;
+    uint bricksPerAxisY = atlasResPixels.y / 8; 
+    uint bricksPerSliceXY = bricksPerAxisX * bricksPerAxisY;
+
+    uint3 brickOriginPixels = uint3(
+        (brickIndex % bricksPerAxisX) * 8,
+        ((brickIndex / bricksPerAxisX) % bricksPerAxisY) * 8,
+        (brickIndex / bricksPerSliceXY) * 8
+    );
+
+    // 1. Calculate continuous local position within this voxel cell [0.0, 1.0]
+    float3 voxelMin = _VolumeBoundsMin + float3(indirectionCoords) * cellWidth;
+    float3 localVolumeUV = saturate((p - voxelMin) / cellWidth);
+
+    // 2. Map coordinates to the [0.0, 7.0] continuous space of the 8x8x8 brick
+    float3 continuousTexCoords = localVolumeUV * 7.0;
+
+    // 3. Find lower bounding integer corner indices (0 to 6)
+    uint3 texel0 = (uint3)floor(continuousTexCoords);
+    texel0 = clamp(texel0, uint3(0, 0, 0), uint3(6, 6, 6));
+
+    // 4. Find upper bounding integer corner indices (1 to 7)
+    uint3 texel1 = texel0 + uint3(1, 1, 1);
+
+    // 5. Compute fractional interpolation weights for each axis
+    float3 f = frac(continuousTexCoords);
+
+    // 6. Gather all 8 absolute neighbor texel coordinates inside the global atlas
+    uint3 g000 = brickOriginPixels + uint3(texel0.x, texel0.y, texel0.z);
+    uint3 g100 = brickOriginPixels + uint3(texel1.x, texel0.y, texel0.z);
+    uint3 g010 = brickOriginPixels + uint3(texel0.x, texel1.y, texel0.z);
+    uint3 g110 = brickOriginPixels + uint3(texel1.x, texel1.y, texel0.z);
+    uint3 g001 = brickOriginPixels + uint3(texel0.x, texel0.y, texel1.z);
+    uint3 g101 = brickOriginPixels + uint3(texel1.x, texel0.y, texel1.z);
+    uint3 g011 = brickOriginPixels + uint3(texel0.x, texel1.y, texel1.z);
+    uint3 g111 = brickOriginPixels + uint3(texel1.x, texel1.y, texel1.z);
+
+    // 7. Extract raw memory values directly from the atlas via integer .Load()
+    float v000 = _SDFBrickAtlas.Load(int4(g000, 0)).r;
+    float v100 = _SDFBrickAtlas.Load(int4(g100, 0)).r;
+    float v010 = _SDFBrickAtlas.Load(int4(g010, 0)).r;
+    float v110 = _SDFBrickAtlas.Load(int4(g110, 0)).r;
+    float v001 = _SDFBrickAtlas.Load(int4(g001, 0)).r;
+    float v101 = _SDFBrickAtlas.Load(int4(g101, 0)).r;
+    float v011 = _SDFBrickAtlas.Load(int4(g011, 0)).r;
+    float v111 = _SDFBrickAtlas.Load(int4(g111, 0)).r;
+
+    // 8. Execute structural trilinear blend layers (7 lerps total)
+    // Blend along X axis
+    float nx00 = lerp(v000, v100, f.x);
+    float nx10 = lerp(v010, v110, f.x);
+    float nx01 = lerp(v001, v101, f.x);
+    float nx11 = lerp(v011, v111, f.x);
+
+    // Blend along Y axis
+    float nxy0 = lerp(nx00, nx10, f.y);
+    float nxy1 = lerp(nx01, nx11, f.y);
+
+    // Final blend along Z axis
+    return lerp(nxy0, nxy1, f.z);
+}
+
+[numthreads(8, 8, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    // Clean unsigned boundary guard: prevents half-screen cutoffs and kernel leaks
+    if (id.x >= _ScreenWidth || id.y >= _ScreenHeight) return;
+
+    // 1. Map to exact pixel centers in normalized device coordinates [-1, 1]
+    float2 pixelCenter = float2(id.xy) + 0.5;
+    float2 ndc = (pixelCenter / float2(_ScreenWidth, _ScreenHeight)) * 2.0 - 1.0;
+
+    // 2. Unproject screen space position back to a true 3D world space direction vector
+    float4 clipPos = float4(ndc.x, ndc.y, 1.0, 1.0);
+    float4 viewPos = mul(_InverseProjectionMatrix, clipPos);
+    viewPos /= viewPos.w; // Perspective division factor normalization
+    
+    float3 rayDirWS = normalize(mul(_InverseViewMatrix, float4(viewPos.xyz, 0.0)).xyz);
+    float3 rayOriginWS = _WorldSpaceCameraPos;
+
+    // 3. Ray-Box intersection evaluation for the global volume container
+    float3 volumeSizes = _VolumeBoundsMax - _VolumeBoundsMin;
+    float cellWidth = volumeSizes.x / max(_IndirectionRes.x, 1.0);
+
+    float3 invRayDir = 1.0 / (rayDirWS + 1e-6);
+    float3 tMinBox = (_VolumeBoundsMin - rayOriginWS) * invRayDir;
+    float3 tMaxBox = (_VolumeBoundsMax - rayOriginWS) * invRayDir;
+    float3 t1 = min(tMinBox, tMaxBox);
+    float3 t2 = max(tMinBox, tMaxBox);
+    
+    float tNear = max(max(t1.x, t1.y), t1.z);
+    float tFar = min(min(t2.x, t2.y), t2.z);
+
+    // If the ray misses the bounding container entirely, clear the pixel memory space
+    if (tFar < 0.0 || tNear > tFar)
+    {
+        _WritableScreenResult[id.xy] = float4(0.0, 0.0, 0.0, 0.0);
+        return;
+    }
+
+    // Clip starting point safely to prevent back-projection artifacts
+    float t = max(0.0, tNear); 
+    
+    // Raymarching constants
+    const int MAX_STEPS = 80; 
+    const float SURFACE_THRESHOLD = 0.015;
+    const float MAX_DISTANCE = 60.0;
+
+    bool hitSurface = false;
+    float3 hitPosWS = float3(0.0, 0.0, 0.0);
+    float accumulatedGlow = 0.0;
+    float glowSharpness = 0.5;
+
+    // 4. Raymarching execution loop
+    [loop]
+    for (int stepIdx = 0; stepIdx < MAX_STEPS; stepIdx++)
+    {
+        float3 currentPosWS = rayOriginWS + rayDirWS * t;
+
+        float distanceToScene = GetSceneSDF(currentPosWS);
+
+        // Track energy gathering for neon glowing accents
+        if (!any(currentPosWS < _VolumeBoundsMin) && !any(currentPosWS > _VolumeBoundsMax))
+        {
+            accumulatedGlow += exp(-max(distanceToScene, 0.0) * glowSharpness);
+        }
+
+        // Surface collision detected
+        if (distanceToScene <= SURFACE_THRESHOLD) 
+        {
+            hitSurface = true;
+            hitPosWS = currentPosWS;
+            break;
+        }
+
+        // Exit conditions
+        if (t > tFar || t > MAX_DISTANCE) break;
+        
+        // Dynamically step forward safely
+        t += max(distanceToScene, cellWidth / 16.0);
+    }
+
+    // 5. Final color compositing
+    float3 finalColor = float3(0.0, 0.0, 0.0);
+    float alphaOut = 0.0;
+
+    if (hitSurface)
+    {
+        float3 cameraForward = mul((float3x3)_InverseViewMatrix, float3(0.0, 0.0, -1.0));
+        float3 vectorToHit = hitPosWS - rayOriginWS;
+        float hitEyeDepth = dot(vectorToHit, cameraForward);
+
+        // Render basic grayscale structural depth mapping
+        float depthVisualizer = saturate(1.0 - (hitEyeDepth / MAX_DISTANCE));
+        finalColor = float3(depthVisualizer, depthVisualizer, depthVisualizer);
+        alphaOut = 1.0;
+    }
+    else
+    {
+        // Compose smooth volumetric neon aura structures
+        float softAura = saturate(accumulatedGlow * 0.02);
+        softAura = pow(softAura, 2.0);
+        finalColor = _NeonColor.rgb * softAura * _GlowIntensity * 0.4;
+        alphaOut = saturate(length(finalColor));
+    }
+
+    // Commit final output into full screen buffer tracking
+    _WritableScreenResult[id.xy] = float4(finalColor, alphaOut);
+}

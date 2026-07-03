@@ -1,0 +1,24 @@
+#pragma kernel ReadIndirectionAndAtlas
+
+// Textures bound from your system
+Texture3D<uint> _SDFIndirectionGrid;
+Texture3D<float> _SDFBrickAtlas;
+
+// Coordinates passed from C#
+int3 _IndirectionCoords;
+int3 _AtlasCoords;
+
+// Output buffer containing exactly 2 elements: [0] = brickIndex, [1] = rawDistance
+RWStructuredBuffer<float> _OutputBuffer;
+
+[numthreads(1, 1, 1)]
+void ReadIndirectionAndAtlas(uint3 id : SV_DispatchThreadID)
+{
+    // 1. Read raw indirection index directly from GPU storage
+    uint brickIndex = _SDFIndirectionGrid.Load(int4(_IndirectionCoords, 0));
+    _OutputBuffer[0] = (float)brickIndex;
+
+    // 2. Read raw SDF data from the Brick Atlas
+    float rawDistance = _SDFBrickAtlas.Load(int4(_AtlasCoords, 0)).r;
+    _OutputBuffer[1] = rawDistance;
+}

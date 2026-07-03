@@ -152,6 +152,21 @@ public class SdfCsgTreeRootInstance : MonoBehaviour
         Debug.Log("==================================================");
     }
 
+    private void BulkMarkForRebake()
+    {
+        if (SDFCacheManager.Instance == null) return;
+
+        foreach (var node in flattenedPrimitives)
+        {
+            // obtain AABB, and for each brick it spans, mark brick for rebake
+            if (!node.isGroupNode && node.primitiveSubscriber != null)
+            {
+                Bounds worldBounds = node.primitiveSubscriber.GetWorldBounds();
+                SDFCacheManager.Instance.MarkRegionForRebake(worldBounds);
+            }
+        }
+    }
+
     public void RecalculateOctreePresence()
     {
         // 1. Clear out old sector allocations
@@ -183,13 +198,7 @@ public class SdfCsgTreeRootInstance : MonoBehaviour
         if (validBoundsCount == 0) return;
 
         // Tell the cache manager to update this volume space
-        if (SDFCacheManager.Instance != null)
-        {
-            // Optional: Clear out the indirection pointers of the grid before re-baking the updated positions
-            SDFCacheManager.Instance.ClearCachePipeline(); 
-            SDFCacheManager.Instance.UpdateGlobalShaderUniforms();
-            SDFCacheManager.Instance.BakeRegion(combinedBounds);
-        }
+        BulkMarkForRebake();
 
         // 3. Query our octree manager to discover which sectors intersect our compound character volume
         List<SdfOctreeNode> overlappingLeaves = new List<SdfOctreeNode>();

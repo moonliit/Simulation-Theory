@@ -25,7 +25,7 @@ uniform float _CsgInstanceOffsets[MAX_CSG_INSTANCES];
 uniform float _CsgAssetTypes[MAX_CSG_INSTANCES];
 
 // --- TEXTURE RESOURCES ---
-RWTexture3D<float> _WritableIndirectionGrid;
+RWTexture3D<uint> _WritableIndirectionGrid;
 RWTexture3D<float> _WritableBrickAtlas;
 
 // --- CONFIGURATION UNIFORMS ---
@@ -49,6 +49,7 @@ float3 _BrickMaxWS;
 
 // Pure analytical evaluation matching your old GetSceneSDF exactly, but WITHOUT the wireframe tube conversion.
 // We cache the pure distance data; wireframe manipulation is handled later during the screen raymarch step.
+// Test version: Generates a perfectly clean analytical sphere centered inside the current brick
 float GetRawSceneSDF(float3 p)
 {
     float finalDist = 10000.0;
@@ -112,7 +113,7 @@ float GetRawSceneSDF(float3 p)
 void ClearIndirectionGrid(uint3 id : SV_DispatchThreadID)
 {
     if (any(id >= (uint3)_IndirectionRes)) return;
-    _WritableIndirectionGrid[id] = (float)_InvalidBrickValue;
+    _WritableIndirectionGrid[id] = (uint)_InvalidBrickValue;
 }
 
 
@@ -123,7 +124,7 @@ void BakeBrick(uint3 id : SV_GroupThreadID)
     // Write the indirection grid mapping pointer once
     if (all(id == 0))
     {
-        _WritableIndirectionGrid[_TargetGridCoords] = (float)_TargetBrickIndex;
+        _WritableIndirectionGrid[_TargetGridCoords] = (uint)_TargetBrickIndex;
     }
 
     // Inside SdfCacheBaker.compute -> BakeBrick kernel:

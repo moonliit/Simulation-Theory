@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -30,7 +31,9 @@ public class SDFCacheManager : MonoBehaviour
     private BrickAllocationPool allocationPool;
     private int clearGridKernelIdx;
     private int bakeBrickKernelIdx;
-    private bool isCacheDirty = true;
+
+    // Dirty grid tracking
+    List<Vector3Int> dirtyGridCoords = new List<Vector3Int>(); // List of grid coordinates marked dirty
 
     void Awake()
     {
@@ -57,6 +60,7 @@ public class SDFCacheManager : MonoBehaviour
         {
             InitializeCacheTextures();
         }
+        UpdateVolumeSystem();
     }
 
     void InitializeCacheTextures()
@@ -65,7 +69,7 @@ public class SDFCacheManager : MonoBehaviour
         RenderTextureDescriptor indirectionDesc = new RenderTextureDescriptor(
             indirectionResolution.x, 
             indirectionResolution.y, 
-            RenderTextureFormat.RFloat, 
+            RenderTextureFormat.RInt, 
             0 
         );
         indirectionDesc.dimension = UnityEngine.Rendering.TextureDimension.Tex3D;
@@ -94,6 +98,8 @@ public class SDFCacheManager : MonoBehaviour
         atlasDesc.enableRandomWrite = true; 
 
         brickAtlasTex = new RenderTexture(atlasDesc);
+        brickAtlasTex.filterMode = FilterMode.Bilinear; // Smooth interpolation for raymarching
+        brickAtlasTex.wrapMode = TextureWrapMode.Clamp; // Prevent sampling outside the atlas
         brickAtlasTex.Create();
 
         // Bind resource textures globally so both Compute and Fragment shaders access them instantly
@@ -101,7 +107,7 @@ public class SDFCacheManager : MonoBehaviour
         Shader.SetGlobalTexture("_SDFBrickAtlas", brickAtlasTex);
     }
 
-    public void BakeRegion(Bounds worldBounds)
+    public void MarkRegionForRebake(Bounds worldBounds)
     {
         // Calculate cell spacing based on your volume configurations
         Vector3 totalMinBounds = volumeCenter - (volumeSize * 0.5f);
@@ -130,16 +136,40 @@ public class SDFCacheManager : MonoBehaviour
             {
                 for (int z = minZ; z <= maxZ; z++)
                 {
-                    Vector3Int gridCoords = new Vector3Int(x, y, z);
-                    
-                    Vector3 cellMinWS = totalMinBounds + Vector3.Scale(new Vector3(x, y, z), cellSizeWS);
-                    Vector3 cellMaxWS = cellMinWS + cellSizeWS;
-
-                    // Fire the compute dispatch for just this block
-                    AllocateAndBakeBrickGPU(gridCoords, cellMinWS, cellMaxWS);
+                    // Mark this grid cell as dirty for rebake
+                    dirtyGridCoords.Add(new Vector3Int(x, y, z));
                 }
             }
         }
+    }
+
+    public void BulkBakeRegions()
+    {
+        if (dirtyGridCoords.Count == 0) return;
+
+        foreach (var gridCoord in dirtyGridCoords)
+        {
+            // Calculate the world space bounds of this specific grid cell
+            Vector3 totalMinBounds = volumeCenter - (volumeSize * 0.5f);
+            Vector3 cellSizeWS = new Vector3(
+                volumeSize.x / indirectionResolution.x,
+                volumeSize.y / indirectionResolution.y,
+                volumeSize.z / indirectionResolution.z
+            );
+
+            Vector3 cellMinWS = totalMinBounds + new Vector3(
+                gridCoord.x * cellSizeWS.x,
+                gridCoord.y * cellSizeWS.y,
+                gridCoord.z * cellSizeWS.z
+            );
+
+            Vector3 cellMaxWS = cellMinWS + cellSizeWS;
+
+            // Allocate and bake this specific brick on the GPU
+            AllocateAndBakeBrickGPU(gridCoord, cellMinWS, cellMaxWS);
+        }
+
+        dirtyGridCoords.Clear();
     }
 
     /// <summary>
@@ -147,6 +177,7 @@ public class SDFCacheManager : MonoBehaviour
     /// </summary>
     public void ClearCachePipeline()
     {
+        if (allocationPool == null) allocationPool = new BrickAllocationPool(maxAtlasBricks);
         allocationPool.ResetPool();
 
         sdfBakeCompute.SetTexture(clearGridKernelIdx, "_WritableIndirectionGrid", indirectionGridTex);
@@ -173,21 +204,44 @@ public class SDFCacheManager : MonoBehaviour
         CommandBuffer cmd = new CommandBuffer();
         cmd.name = $"BakeBrick_{targetBrickID}";
 
-        // 1. Update the coordinate grid mapping index directly on the GPU texture layer
-        sdfBakeCompute.SetTexture(bakeBrickKernelIdx, "_WritableIndirectionGrid", indirectionGridTex);
-        sdfBakeCompute.SetInts("_TargetGridCoords", new int[] { gridCoords.x, gridCoords.y, gridCoords.z });
+        // Force variables to bind to THIS explicit command instance execution slot
+        cmd.SetComputeTextureParam(sdfBakeCompute, bakeBrickKernelIdx, "_WritableIndirectionGrid", indirectionGridTex);
+        cmd.SetComputeIntParams(sdfBakeCompute, "_TargetGridCoords", new int[] { gridCoords.x, gridCoords.y, gridCoords.z });
         
-        // 2. Set the data blocks for the texture atlas payload update
-        sdfBakeCompute.SetTexture(bakeBrickKernelIdx, "_WritableBrickAtlas", brickAtlasTex);
-        sdfBakeCompute.SetInt("_TargetBrickIndex", (int)targetBrickID);
-        sdfBakeCompute.SetVector("_BrickMinWS", cellMinWS);
-        sdfBakeCompute.SetVector("_BrickMaxWS", cellMaxWS);
+        cmd.SetComputeTextureParam(sdfBakeCompute, bakeBrickKernelIdx, "_WritableBrickAtlas", brickAtlasTex);
+        cmd.SetComputeIntParam(sdfBakeCompute, "_TargetBrickIndex", (int)targetBrickID);
+        cmd.SetComputeVectorParam(sdfBakeCompute, "_BrickMinWS", cellMinWS);
+        cmd.SetComputeVectorParam(sdfBakeCompute, "_BrickMaxWS", cellMaxWS);
 
-        // Dispatch 2x2x2 groups of 4x4x4 threads to cleanly evaluate all 8x8x8 voxels
-        sdfBakeCompute.Dispatch(bakeBrickKernelIdx, 1, 1, 1);
+        // Record dispatch sequence safely inside the buffer layout
+        cmd.DispatchCompute(sdfBakeCompute, bakeBrickKernelIdx, 1, 1, 1);
 
+        // Execute right away so the next loop cycle can safely track its own resource changes
         Graphics.ExecuteCommandBuffer(cmd);
         cmd.Release();
+    }
+
+    void UpdateVolumeSystem()
+    {
+        if (dirtyGridCoords.Count > 0)
+        {
+            ClearCachePipeline(); // Clear the indirection grid before rebaking
+            UpdateGlobalShaderUniforms(); // Update shader uniforms for the new volume bounds
+            BulkBakeRegions();
+            GL.Flush(); // Ensure all GPU commands are completed before proceeding
+            
+            if (ComputePrebakeManager.Instance != null)
+            {
+                ComputePrebakeManager.Instance.RenderScreenCache();
+            }
+        }
+        else
+        {
+            if (ComputePrebakeManager.Instance != null)
+            {
+                ComputePrebakeManager.Instance.RenderScreenCache();
+            }
+        }
     }
 
     public void UpdateGlobalShaderUniforms()

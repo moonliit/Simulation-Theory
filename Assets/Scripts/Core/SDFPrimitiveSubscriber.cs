@@ -3,20 +3,31 @@ using System.Collections.Generic;
 
 public class SdfPrimitiveSubscriber : MonoBehaviour
 {
-    public enum PrimitiveType { Cube, Sphere, Capsule }
-    
+    public enum PrimitiveType { Cube, Sphere, Capsule, Torus }
+
     [Header("Primitive Settings")]
     [SerializeField] public PrimitiveType shapeType = PrimitiveType.Cube;
 
+    [Header("CSG Operation")]
+    [Tooltip("Si está activo, esta primitiva RESTA (carve) de la escena en vez de sumar. Úsalo para el corte de espada.")]
+    public bool isSubtractive = false;
+
     [Header("Hierarchy Coupling")]
-    [Tooltip("If true, this primitive will not touch the Octree Manager directly. A parent CSG Tree Node will handle its bounds and data instead.")]
+    [Tooltip("Si true, esta primitiva no toca al Octree Manager directamente. Un SdfCsgTreeRootInstance padre maneja sus bounds y datos.")]
     public bool isPartOfCsgTree = false;
 
-    // Track ALL nodes that this primitive physically intersects with
+    // ---- Registro estático global: reemplaza el FindObjectsByType ----
+    public static readonly List<SdfPrimitiveSubscriber> All = new List<SdfPrimitiveSubscriber>();
+
     private readonly List<SdfOctreeNode> occupiedNodes = new List<SdfOctreeNode>();
-    
+
     private Vector3 lastPosition;
     private Vector3 lastScale;
+
+    void OnEnable()
+    {
+        if (!All.Contains(this)) All.Add(this);
+    }
 
     void Start()
     {
@@ -58,7 +69,6 @@ public class SdfPrimitiveSubscriber : MonoBehaviour
 
     public void RecalculateTreePresence()
     {
-        // 1. Tell all our old node sectors to remove us
         for (int i = occupiedNodes.Count - 1; i >= 0; i--)
         {
             occupiedNodes[i].RemovePrimitiveDirectly(transform);
@@ -67,27 +77,22 @@ public class SdfPrimitiveSubscriber : MonoBehaviour
 
         if (SdfOctreeManager.Instance == null) return;
 
-        // 2. Fetch the true physical world-space bounds of this primitive
         Bounds myBounds = GetWorldBounds();
 
-        // 3. Query the tree to find every leaf node overlapping our volume
         List<SdfOctreeNode> overlappingLeaves = new List<SdfOctreeNode>();
         SdfOctreeManager.Instance.FindAllLeafNodesOverlapping(myBounds, overlappingLeaves);
 
-        // 4. Register to all overlapping leaves
         foreach (var leaf in overlappingLeaves)
         {
             occupiedNodes.Add(leaf);
             leaf.AddPrimitiveDirectly(transform);
         }
 
-        // 5. Trigger a structural merge/collapse pass over the engine if we abandoned empty spots
         SdfOctreeManager.Instance.TriggerCollapseCheck();
     }
 
     public Bounds GetWorldBounds()
     {
-        // Drive boundaries from lossy scale or an attached collider if available
         return new Bounds(transform.position, transform.lossyScale);
     }
 
@@ -98,16 +103,21 @@ public class SdfPrimitiveSubscriber : MonoBehaviour
         {
             radius = 0.5f;
             height = 2f;
-            direction = 1; // Default to Y-Axis
+            direction = 1;
             return;
         }
 
         radius = cc.radius;
         height = cc.height;
-        direction = cc.direction; // 0 = X, 1 = Y, 2 = Z
+        direction = cc.direction;
     }
 
-    void OnDisable() => CleanUp();
+    void OnDisable()
+    {
+        All.Remove(this);
+        CleanUp();
+    }
+
     void OnDestroy() => CleanUp();
 
     private void CleanUp()
@@ -117,20 +127,16 @@ public class SdfPrimitiveSubscriber : MonoBehaviour
             node.RemovePrimitiveDirectly(transform);
         }
         occupiedNodes.Clear();
-        
+
         if (SdfOctreeManager.Instance != null)
             SdfOctreeManager.Instance.TriggerCollapseCheck();
     }
 
     void OnDrawGizmos()
     {
-        // Only draw this subtle outline if we are working inside the Editor viewport
         if (!Application.isPlaying)
         {
-            // Give subtractive objects a reddish hue, additive ones a soft white/gray hue
-            //Gizmos.color = isSubtractive ? new Color(1f, 0.3f, 0.3f, 0.25f) : new Color(1f, 1f, 1f, 0.15f);
-            Gizmos.color = new Color(1f, 1f, 1f, 0.15f);
-
+            Gizmos.color = isSubtractive ? new Color(1f, 0.3f, 0.3f, 0.25f) : new Color(1f, 1f, 1f, 0.15f);
             Gizmos.matrix = transform.localToWorldMatrix;
 
             if (shapeType == PrimitiveType.Cube)
@@ -143,7 +149,6 @@ public class SdfPrimitiveSubscriber : MonoBehaviour
             }
             else if (shapeType == PrimitiveType.Capsule)
             {
-                // Simple wire representation for capsules inside the editor view canvas
                 Gizmos.DrawWireSphere(Vector3.up * 0.5f, 0.5f);
                 Gizmos.DrawWireSphere(Vector3.down * 0.5f, 0.5f);
             }
@@ -153,4 +158,6 @@ public class SdfPrimitiveSubscriber : MonoBehaviour
     public bool IsCube() => shapeType == PrimitiveType.Cube;
     public bool IsSphere() => shapeType == PrimitiveType.Sphere;
     public bool IsCapsule() => shapeType == PrimitiveType.Capsule;
+
+    public bool IsTorus() => shapeType == PrimitiveType.Torus;
 }

@@ -4,6 +4,14 @@ Shader "Custom/SdfVolumeRaymarcher"
     {
         _NeonColor ("Neon Color", Color) = (1, 0.5, 0, 1) 
         _GlowIntensity ("Glow Intensity", Range(0, 5)) = 2.5
+
+        [Header(SDF Aesthetics)]
+        _SDFBaseColor ("Dark Body Color", Color) = (0.05, 0.02, 0.05, 1)
+        [HDR] _NeonOutlineColor ("Neon Grid/Edge Color", Color) = (1, 0.1, 0.2, 1)
+        
+        [Header(Ophanim Eye)]
+        _EyeColor ("Eye Sclera Color", Color) = (0.9, 0.9, 0.9, 1)
+        [HDR] _PupilColor ("Glowing Pupil Color", Color) = (0, 1, 1, 1)
     }
 
     SubShader
@@ -44,6 +52,14 @@ Shader "Custom/SdfVolumeRaymarcher"
             float4 _NeonColor;
             float _GlowIntensity;
 
+            float4 _BossCorePos;
+            float4 _BossCoreForward;
+            
+            half4 _SDFBaseColor;
+            half4 _NeonOutlineColor;
+            half4 _EyeColor;
+            half4 _PupilColor;
+
             #define MAX_STANDALONE_PRIMITIVES 64
             #define MAX_CSG_INSTANCES 32
             #define MAX_TOTAL_CSG_NODES 128
@@ -61,7 +77,6 @@ Shader "Custom/SdfVolumeRaymarcher"
             uniform float4 _GlobalCapsuleData[MAX_STANDALONE_PRIMITIVES]; // x = radius, y = height, z = direction, w = isSubtractive
             uniform int _GlobalCapsuleCount;
 
-            // Universal data slots containing up to 16 distinct sub-limbs
             uniform float4x4 _CharMatrices[MAX_TOTAL_CSG_NODES];
             uniform float4 _CharData[MAX_TOTAL_CSG_NODES];
             uniform int _ActiveCsgInstanceCount;
@@ -93,7 +108,6 @@ Shader "Custom/SdfVolumeRaymarcher"
 
             float DistanceToCapsuleLocal(float3 localP, float radius, float height, int direction)
             {
-                // Generate base axis vector depending on direction index (0=X, 1=Y, 2=Z)
                 float3 dir = float3(0, 1, 0);
                 if (direction == 0) dir = float3(1, 0, 0);
                 if (direction == 2) dir = float3(0, 0, 1);
@@ -101,7 +115,6 @@ Shader "Custom/SdfVolumeRaymarcher"
                 float halfLineLen = (height * 0.5) - radius;
                 halfLineLen = max(halfLineLen, 0.0);
 
-                // Define standard segment bounds along that axis
                 float3 a = dir * halfLineLen;
                 float3 b = -dir * halfLineLen;
 
@@ -109,6 +122,12 @@ Shader "Custom/SdfVolumeRaymarcher"
                 float3 ba = b - a;
                 float h = saturate(dot(pa, ba) / dot(ba, ba));
                 return length(pa - ba * h) - radius;
+            }
+
+            float DistanceToTorusLocal(float3 p, float tubeThickness, float ringRadius)
+            {
+                float2 q = float2(length(p.xz) - ringRadius, p.y);
+                return length(q) - tubeThickness;
             }
 
             float smin(float a, float b, float k)
@@ -126,12 +145,12 @@ Shader "Custom/SdfVolumeRaymarcher"
             #include "Sword.hlsl"
             #include "Character.hlsl"
             #include "SwordCharacter.hlsl"
+            #include "BossOphanim.hlsl"
 
             float GetSceneSdf(float3 p)
             {
                 float finalDist = 10000.0;
 
-                //float dCharacter = GetCustomCharacterDist(p);
                 for (int instanceIdx = 0; instanceIdx < _ActiveCsgInstanceCount; instanceIdx++)
                 {
                     int baseBufferIndex = (int)_CsgInstanceOffsets[instanceIdx];
@@ -161,11 +180,7 @@ Shader "Custom/SdfVolumeRaymarcher"
                 {
                     if (_GlobalCubeData[i].w < 0.5) {
                         float3 localP = mul(_GlobalCubeMatrices[i], float4(p, 1.0)).xyz;
-                        
-                        // 🚀 Pass the explicit world half extents from the data vector
                         float dBox = DistanceToBoxLocal(localP, _GlobalCubeData[i].xyz);
-                        
-                        // Clean uniform distance step, completely glitch-free!
                         finalDist = smin(finalDist, dBox, 1.0);
                     }
                 }
@@ -181,18 +196,16 @@ Shader "Custom/SdfVolumeRaymarcher"
                 for (int k = 0; k < _GlobalCapsuleCount; k++)
                 {
                     if (_GlobalCapsuleData[k].w < 0.5) {
-                        // localP is now in a clean, unwarped rotated space
                         float3 localP = mul(_GlobalCapsuleMatrices[k], float4(p, 1.0)).xyz;
-                        
-                        float dCapsule = DistanceToCapsuleLocal(
-                            localP, 
-                            _GlobalCapsuleData[k].x, // World Radius
-                            _GlobalCapsuleData[k].y, // World Height
-                            (int)_GlobalCapsuleData[k].z // Direction Axis
-                        );
-                        
-                        // No scale correction needed anymore! Space is uniform.
-                        finalDist = smin(finalDist, dCapsule, 1.0);
+                        float dShape = 10000.0;
+
+                        if ((int)_GlobalCapsuleData[k].z == 3) {
+                            dShape = DistanceToTorusLocal(localP, _GlobalCapsuleData[k].x, _GlobalCapsuleData[k].y);
+                        } else {
+                            dShape = DistanceToCapsuleLocal(localP, _GlobalCapsuleData[k].x, _GlobalCapsuleData[k].y, (int)_GlobalCapsuleData[k].z);
+                        }
+
+                        finalDist = smin(finalDist, dShape, 1.0);
                     }
                 }
 
@@ -200,9 +213,9 @@ Shader "Custom/SdfVolumeRaymarcher"
                 for (int i2 = 0; i2 < _GlobalCubeCount; i2++)
                 {
                     if (_GlobalCubeData[i2].w > 0.5) {
-                        //float3 localP = mul(_GlobalCubeMatrices[i2], float4(p, 1.0)).xyz;
-                        //float dBox = DistanceToBoxLocal(localP, _GlobalCubeData[i2].xyz);
-                        //finalDist = max(finalDist, -dBox);
+                        float3 localP = mul(_GlobalCubeMatrices[i2], float4(p, 1.0)).xyz;
+                        float dBox = DistanceToBoxLocal(localP, _GlobalCubeData[i2].xyz);
+                        finalDist = max(finalDist, -dBox);
                     }
                 }
 
@@ -218,15 +231,15 @@ Shader "Custom/SdfVolumeRaymarcher"
                 {
                     if (_GlobalCapsuleData[k2].w > 0.5) {
                         float3 localP = mul(_GlobalCapsuleMatrices[k2], float4(p, 1.0)).xyz;
-                        
-                        float dCapsule = DistanceToCapsuleLocal(
-                            localP, 
-                            _GlobalCapsuleData[k2].x, 
-                            _GlobalCapsuleData[k2].y, 
-                            (int)_GlobalCapsuleData[k2].z
-                        );
-                        
-                        finalDist = max(finalDist, -dCapsule);
+                        float dShape = 10000.0;
+
+                        if ((int)_GlobalCapsuleData[k2].z == 3) {
+                            dShape = DistanceToTorusLocal(localP, _GlobalCapsuleData[k2].x, _GlobalCapsuleData[k2].y);
+                        } else {
+                            dShape = DistanceToCapsuleLocal(localP, _GlobalCapsuleData[k2].x, _GlobalCapsuleData[k2].y, (int)_GlobalCapsuleData[k2].z);
+                        }
+
+                        finalDist = max(finalDist, -dShape);
                     }
                 }
 
@@ -242,6 +255,40 @@ Shader "Custom/SdfVolumeRaymarcher"
                     GetSceneSdf(p + e.yxy) - GetSceneSdf(p - e.yxy),
                     GetSceneSdf(p + e.yyx) - GetSceneSdf(p - e.yyx)
                 ));
+            }
+
+            float DistanceToSubtractions(float3 p)
+            {
+                float minDist = 10000.0;
+
+                for (int i2 = 0; i2 < _GlobalCubeCount; i2++) {
+                    if (_GlobalCubeData[i2].w > 0.5) {
+                        float3 localP = mul(_GlobalCubeMatrices[i2], float4(p, 1.0)).xyz;
+                        float dBox = DistanceToBoxLocal(localP, _GlobalCubeData[i2].xyz);
+                        minDist = min(minDist, dBox);
+                    }
+                }
+
+                for (int j2 = 0; j2 < _GlobalSphereCount; j2++) {
+                    if (_GlobalSphereRadii[j2].y > 0.5) {
+                        float dSphere = DistanceToSphere(p, _GlobalSpherePositions[j2].xyz, _GlobalSphereRadii[j2].x);
+                        minDist = min(minDist, dSphere);
+                    }
+                }
+
+                for (int k2 = 0; k2 < _GlobalCapsuleCount; k2++) {
+                    if (_GlobalCapsuleData[k2].w > 0.5) {
+                        float3 localP = mul(_GlobalCapsuleMatrices[k2], float4(p, 1.0)).xyz;
+                        float dShape = 10000.0;
+                        if ((int)_GlobalCapsuleData[k2].z == 3) {
+                            dShape = DistanceToTorusLocal(localP, _GlobalCapsuleData[k2].x, _GlobalCapsuleData[k2].y);
+                        } else {
+                            dShape = DistanceToCapsuleLocal(localP, _GlobalCapsuleData[k2].x, _GlobalCapsuleData[k2].y, (int)_GlobalCapsuleData[k2].z);
+                        }
+                        minDist = min(minDist, dShape);
+                    }
+                }
+                return minDist;
             }
 
             float4 frag(Varyings input) : SV_Target
@@ -290,18 +337,24 @@ Shader "Custom/SdfVolumeRaymarcher"
                     {
                         float3 normal = CalculateCSGNormal(hitPosWS);
                         float3 viewDirWS = -rayDirWS;
+                        
+                        float cutDist = abs(DistanceToSubtractions(hitPosWS));
 
-                        float edgeGlow = 1.0 - saturate(dot(normal, viewDirWS));
-                        edgeGlow = pow(edgeGlow, 4.0); 
-
-                        float3 finalColor = float3(0.02, 0.02, 0.04) + (_NeonColor.rgb * edgeGlow * _GlowIntensity);
-                        return float4(finalColor, 1.0);
+                        float3 finalRGB = GetOphanimColor(
+                            hitPosWS, normal, viewDirWS, cutDist,
+                            _SDFBaseColor.rgb, _NeonOutlineColor.rgb, _NeonColor.rgb,
+                            _EyeColor.rgb, _PupilColor.rgb,
+                            _BossCorePos.xyz, _BossCoreForward.xyz
+                        );
+                        
+                        return float4(finalRGB, 1.0);
                     }
                 }
 
-                discard; // 🌟 Completely drops execution on empty spaces to keep background pristine
+                discard; // Completely drops execution on empty spaces to keep background pristine
                 return float4(0.0, 0.0, 0.0, 0.0);
             }
+
             ENDHLSL
         }
     }

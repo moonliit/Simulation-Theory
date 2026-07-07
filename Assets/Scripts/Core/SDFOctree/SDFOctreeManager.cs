@@ -20,9 +20,6 @@ public class SdfOctreeManager : MonoBehaviour
     private SdfOctreeNode rootNode;
     private BoxCollider boundaryCollider;
 
-    // ========================================================
-    // 🌐 GLOBAL SHADER VECTOR IDS
-    // ========================================================
     private static readonly int GlobalCubeMatricesID = Shader.PropertyToID("_GlobalCubeMatrices");
     private static readonly int GlobalCubeDataID = Shader.PropertyToID("_GlobalCubeData");
     private static readonly int GlobalCubeCountID = Shader.PropertyToID("_GlobalCubeCount");
@@ -41,7 +38,6 @@ public class SdfOctreeManager : MonoBehaviour
     private static readonly int CsgAssetTypesID = Shader.PropertyToID("_CsgAssetTypes");
     private static readonly int ActiveCsgInstanceCountID = Shader.PropertyToID("_ActiveCsgInstanceCount");
 
-    // Reusable fixed array cache for GPU flushing
     private readonly Matrix4x4[] gCubeMatrices = new Matrix4x4[MAX_STANDALONE_PRIMITIVES];
     private readonly Vector4[] gCubeData = new Vector4[MAX_STANDALONE_PRIMITIVES];
     private readonly Vector4[] gSpherePositions = new Vector4[MAX_STANDALONE_PRIMITIVES];
@@ -73,7 +69,7 @@ public class SdfOctreeManager : MonoBehaviour
     {
         Instance = this;
         boundaryCollider = GetComponent<BoxCollider>();
-        boundaryCollider.isTrigger = true; 
+        boundaryCollider.isTrigger = true;
     }
 
     void OnApplicationQuit()
@@ -83,23 +79,21 @@ public class SdfOctreeManager : MonoBehaviour
 
     void Start()
     {
-        var baselineObjects = FindObjectsByType<SdfPrimitiveSubscriber>(FindObjectsSortMode.None);
         List<Transform> population = new List<Transform>();
-        
+
         activeCubes.Clear();
         activeSpheres.Clear();
         activeCapsules.Clear();
 
-        foreach (var obj in baselineObjects) 
+        foreach (var obj in SdfPrimitiveSubscriber.All)
         {
-            if (obj.isPartOfCsgTree) continue;
+            if (obj == null || obj.isPartOfCsgTree) continue;
 
             population.Add(obj.transform);
-            
-            // Segregate by shape properties automatically
+
             if (obj.IsSphere())
                 activeSpheres.Add(obj);
-            else if (obj.IsCapsule())
+            else if (obj.IsCapsule() || obj.IsTorus())
                 activeCapsules.Add(obj);
             else
                 activeCubes.Add(obj);
@@ -112,35 +106,29 @@ public class SdfOctreeManager : MonoBehaviour
 
     void LateUpdate()
     {
-        // Every frame, flush the global positions of all tracked objects directly down to the graphics card
         UpdateGlobalShaderBuffers();
     }
 
     void Update()
     {
-        //if (!Application.isPlaying)
-        //{
-            RefreshEditorPrimitiveBuffers();
-            UpdateCsgBuffers();
-        //}
+        RefreshEditorPrimitiveBuffers();
+        UpdateCsgBuffers();
     }
 
     private void RefreshEditorPrimitiveBuffers()
     {
-        var baselineObjects = FindObjectsByType<SdfPrimitiveSubscriber>(FindObjectsSortMode.None);
-        
         activeCubes.Clear();
         activeSpheres.Clear();
         activeCapsules.Clear();
 
-        foreach (var obj in baselineObjects) 
+        foreach (var obj in SdfPrimitiveSubscriber.All)
         {
             if (obj == null || !obj.gameObject.activeInHierarchy) continue;
             if (obj.isPartOfCsgTree) continue;
-            
+
             if (obj.IsSphere())
                 activeSpheres.Add(obj);
-            else if (obj.IsCapsule())
+            else if (obj.IsCapsule() || obj.IsTorus())
                 activeCapsules.Add(obj);
             else
                 activeCubes.Add(obj);
@@ -151,7 +139,6 @@ public class SdfOctreeManager : MonoBehaviour
 
     void UpdateGlobalShaderBuffers()
     {
-        // update cubes
         int cubeCount = Mathf.Min(activeCubes.Count, MAX_STANDALONE_PRIMITIVES);
         for (int i = 0; i < cubeCount; i++)
         {
@@ -161,62 +148,56 @@ public class SdfOctreeManager : MonoBehaviour
                 Matrix4x4 rigidMatrix = Matrix4x4.TRS(t.position, t.rotation, Vector3.one);
                 gCubeMatrices[i] = rigidMatrix.inverse;
                 Vector3 worldHalfExtents = t.lossyScale * 0.5f;
-                gCubeData[i] = new Vector4(worldHalfExtents.x, worldHalfExtents.y, worldHalfExtents.z, 0);
+                
+                gCubeData[i] = new Vector4(worldHalfExtents.x, worldHalfExtents.y, worldHalfExtents.z,
+                    activeCubes[i].isSubtractive ? 1f : 0f);
             }
         }
 
-        // update spheres
         int sphereCount = Mathf.Min(activeSpheres.Count, MAX_STANDALONE_PRIMITIVES);
         for (int j = 0; j < sphereCount; j++)
         {
             if (activeSpheres[j] != null)
             {
-                gSpherePositions[j] = activeSpheres[j].transform.position;
-                float radius = Mathf.Max(
-                    activeSpheres[j].transform.lossyScale.x,
-                    Mathf.Max(activeSpheres[j].transform.lossyScale.y, activeSpheres[j].transform.lossyScale.z)
-                ) * 0.5f;
-                gSphereRadii[j] = new Vector4(radius, 0, 0, 0);
+                spherePositionsAssign(j);
             }
         }
-        
-        // update capsules
+
         int capsuleCount = Mathf.Min(activeCapsules.Count, MAX_STANDALONE_PRIMITIVES);
         for (int k = 0; k < capsuleCount; k++)
         {
             if (activeCapsules[k] != null)
             {
                 Transform t = activeCapsules[k].transform;
-                Matrix4x4 rigidMatrix = Matrix4x4.TRS(t.position, t.rotation, Vector3.one);
-                gCapsuleMatrices[k] = rigidMatrix.inverse;
+                gCapsuleMatrices[k] = Matrix4x4.TRS(t.position, t.rotation, Vector3.one).inverse;
 
                 activeCapsules[k].GetCapsuleLocalDimensions(out float radius, out float height, out int direction);
+
+                if (activeCapsules[k].IsTorus())
+                {
+                    gCapsuleData[k] = new Vector4(radius, height, 3f, activeCapsules[k].isSubtractive ? 1f : 0f);
+                    continue;
+                }
 
                 Vector3 lossyScale = t.lossyScale;
                 float worldRadius = radius;
                 float worldHeight = height;
 
-                if (direction == 0) // X-Aligned
-                {
+                if (direction == 0) {
                     worldRadius = radius * Mathf.Max(Mathf.Abs(lossyScale.y), Mathf.Abs(lossyScale.z));
                     worldHeight = height * Mathf.Abs(lossyScale.x);
-                }
-                else if (direction == 1) // Y-Aligned
-                {
+                } else if (direction == 1) {
                     worldRadius = radius * Mathf.Max(Mathf.Abs(lossyScale.x), Mathf.Abs(lossyScale.z));
                     worldHeight = height * Mathf.Abs(lossyScale.y);
-                }
-                else // Z-Aligned
-                {
+                } else {
                     worldRadius = radius * Mathf.Max(Mathf.Abs(lossyScale.x), Mathf.Abs(lossyScale.y));
                     worldHeight = height * Mathf.Abs(lossyScale.z);
                 }
 
-                gCapsuleData[k] = new Vector4(worldRadius, worldHeight, (float)direction, 0);
+                gCapsuleData[k] = new Vector4(worldRadius, worldHeight, (float)direction, activeCapsules[k].isSubtractive ? 1f : 0f);
             }
         }
 
-        // Push global states to the GPU card architecture
         Shader.SetGlobalMatrixArray(GlobalCubeMatricesID, gCubeMatrices);
         Shader.SetGlobalVectorArray(GlobalCubeDataID, gCubeData);
         Shader.SetGlobalInt(GlobalCubeCountID, cubeCount);
@@ -230,30 +211,38 @@ public class SdfOctreeManager : MonoBehaviour
         Shader.SetGlobalInt(GlobalCapsuleCountID, capsuleCount);
     }
 
+    private void spherePositionsAssign(int j)
+    {
+        gSpherePositions[j] = activeSpheres[j].transform.position;
+        float radius = Mathf.Max(
+            activeSpheres[j].transform.lossyScale.x,
+            Mathf.Max(activeSpheres[j].transform.lossyScale.y, activeSpheres[j].transform.lossyScale.z)
+        ) * 0.5f;
+        
+        gSphereRadii[j] = new Vector4(radius, activeSpheres[j].isSubtractive ? 1f : 0f, 0, 0);
+    }
+
     void UpdateCsgBuffers()
     {
         int currentBufferPtr = 0;
         int instanceCount = Mathf.Min(activeInstances.Count, MAX_CSG_INSTANCES);
 
-        // Initialize clean fallbacks for the entire global block buffer
         for (int i = 0; i < MAX_CSG_INSTANCES; i++)
         {
             charMatrices[i] = Matrix4x4.identity;
-            charData[i] = new Vector4(0f, 0f, 0f, -1f); 
+            charData[i] = new Vector4(0f, 0f, 0f, -1f);
         }
 
         for (int instanceIdx = 0; instanceIdx < instanceCount; instanceIdx++)
         {
             var instance = activeInstances[instanceIdx];
 
-            // Track exactly where this specific instance starts in our global heap
             instance.globalBufferStartIndex = currentBufferPtr;
             csgInstanceOffsets[instanceIdx] = (float)currentBufferPtr;
             csgAssetTypes[instanceIdx] = (float)instance.assetType;
             currentBufferPtr = instance.PackDataIntoBuffers(charMatrices, charData, currentBufferPtr, MAX_TOTAL_CSG_NODES);
         }
 
-        // Send everything packed together down to the shader uniform locations
         Shader.SetGlobalMatrixArray(CharMatricesID, charMatrices);
         Shader.SetGlobalVectorArray(CharDataID, charData);
         Shader.SetGlobalFloatArray(CsgInstanceOffsetsID, csgInstanceOffsets);
@@ -338,14 +327,13 @@ public class SdfOctreeManager : MonoBehaviour
         }
     }
 
-    #if UNITY_EDITOR
+#if UNITY_EDITOR
     void OnRenderObject()
     {
         if (!Application.isPlaying)
         {
-            // Ensures the Scene view updates smoothly as you pan/rotate the editor camera
             UnityEditor.EditorApplication.QueuePlayerLoopUpdate();
         }
     }
-    #endif
+#endif
 }

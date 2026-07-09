@@ -36,6 +36,7 @@ public class PlayerCombat : MonoBehaviour
     private float nextSlashTime = 0f;
 
     private GameObject activeWall;
+    private CuttableSdfObject activeWallCuttable;
     private float nextWallTime = 0f;
 
     void Start()
@@ -75,48 +76,51 @@ public class PlayerCombat : MonoBehaviour
     }
 
     // ---------------- MECÁNICA DE TAJO ----------------
+    GameObject CreateSlashObject(int index)
+    {
+        GameObject go = new GameObject("SDF_Slash_" + index);
+        go.transform.SetParent(transform, false);
+
+        CapsuleCollider cc = go.AddComponent<CapsuleCollider>();
+        go.AddComponent<Rigidbody>().isKinematic = true;
+
+        GameObject visual = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        Destroy(visual.GetComponent<Collider>());
+        visual.transform.SetParent(go.transform);
+        visual.transform.localPosition = Vector3.zero;
+        visual.transform.localScale = new Vector3(slashLength, 0.1f, 0.5f);
+
+        if (neonMaterial != null)
+            visual.GetComponent<Renderer>().material = neonMaterial;
+
+        cc.direction = 1;
+        cc.radius = slashThickness;
+        cc.height = slashLength;
+        cc.isTrigger = true;
+
+        SdfPrimitiveSubscriber sub = go.AddComponent<SdfPrimitiveSubscriber>();
+        sub.shapeType = SdfPrimitiveSubscriber.PrimitiveType.Capsule;
+        sub.isSubtractive = true;
+
+        SlashProjectile projScript = go.AddComponent<SlashProjectile>();
+        projScript.scarPrefab = this.scarPrefab;
+
+        go.SetActive(false);
+        return go;
+    }
+
     void BuildCutPool()
     {
         cutPool = new GameObject[slashPoolSize];
         for (int i = 0; i < slashPoolSize; i++)
-        {
-            GameObject go = new GameObject("SDF_Slash_" + i);
-            go.transform.SetParent(transform, false);
-
-            CapsuleCollider cc = go.AddComponent<CapsuleCollider>();
-            go.AddComponent<Rigidbody>().isKinematic = true;
-
-            GameObject visual = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            Destroy(visual.GetComponent<Collider>());
-            visual.transform.SetParent(go.transform);
-            visual.transform.localPosition = Vector3.zero;
-
-            visual.transform.localScale = new Vector3(slashLength, 0.1f, 0.5f); 
-
-            if (neonMaterial != null) 
-            {
-                visual.GetComponent<Renderer>().material = neonMaterial;
-            }
-
-            cc.direction = 1;
-            cc.radius = slashThickness;
-            cc.height = slashLength;
-            cc.isTrigger = true;
-
-            SdfPrimitiveSubscriber sub = go.AddComponent<SdfPrimitiveSubscriber>();
-            sub.shapeType = SdfPrimitiveSubscriber.PrimitiveType.Capsule;
-            sub.isSubtractive = true;
-
-            SlashProjectile projScript = go.AddComponent<SlashProjectile>();
-            projScript.scarPrefab = this.scarPrefab;
-
-            go.SetActive(false);
-            cutPool[i] = go;
-        }
+            cutPool[i] = CreateSlashObject(i);
     }
 
     void FireSlash()
     {
+        if (cutPool[nextCutIndex] == null)
+            cutPool[nextCutIndex] = CreateSlashObject(nextCutIndex);
+
         GameObject cut = cutPool[nextCutIndex];
         cut.transform.position = playerCamera.position + playerCamera.forward * 0.5f;
 
@@ -144,12 +148,21 @@ public class PlayerCombat : MonoBehaviour
         sub.shapeType = SdfPrimitiveSubscriber.PrimitiveType.Cube;
         sub.isSubtractive = false;
 
+        activeWallCuttable = activeWall.AddComponent<CuttableSdfObject>();
+        activeWallCuttable.maxHealth = 30;
+        activeWallCuttable.damagePerSlash = 10;
+        activeWallCuttable.scarPrefab = this.scarPrefab;
+
         activeWall.transform.localScale = wallSize;
         activeWall.SetActive(false);
     }
 
     IEnumerator SpawnWallRoutine()
     {
+        if (activeWall == null) BuildWall(); 
+
+        activeWallCuttable.ResetHealth();
+
         Vector3 targetPos = playerCamera.position + playerCamera.forward * wallSpawnDistance;
         Vector3 rayStart = new Vector3(targetPos.x, playerCamera.position.y + 5f, targetPos.z);
 
@@ -176,13 +189,21 @@ public class PlayerCombat : MonoBehaviour
         float elapsed = 0f;
         while (elapsed < animDuration)
         {
+            if (activeWall == null) yield break;
             activeWall.transform.position = Vector3.Lerp(hiddenPos, finalPos, elapsed / animDuration);
             elapsed += Time.deltaTime;
             yield return null;
         }
         activeWall.transform.position = finalPos;
 
-        yield return new WaitForSeconds(wallDuration - (animDuration * 2));
+        elapsed = 0f;
+        float holdTime = wallDuration - (animDuration * 2);
+        while (elapsed < holdTime)
+        {
+            if (activeWall == null) yield break;
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
 
         elapsed = 0f;
         while (elapsed < animDuration)

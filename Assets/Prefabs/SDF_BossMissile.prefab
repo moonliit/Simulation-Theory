@@ -10,6 +10,7 @@ GameObject:
   m_Component:
   - component: {fileID: 3860027118021318228}
   - component: {fileID: 6632234897696693676}
+  - component: {fileID: 594570748097097442}
   m_Layer: 0
   m_Name: SDF_BossMissile
   m_TagString: Untagged
@@ -46,7 +47,22 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::BossSdfProjectile
   speed: 15
-  neonMaterial: {fileID: 0}
+  neonMaterial: {fileID: 2100000, guid: 4c59839f1a53bec4ead0583b89483375, type: 2}
+--- !u!114 &594570748097097442
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1753458694954337793}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 08a7dab55e9e71e449803d18fea2d78f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CuttableSdfObject
+  maxHealth: 10
+  damagePerSlash: 10
+  scarPrefab: {fileID: 1088544655632604695, guid: f0e58f2648ada384fadf265809b3960c, type: 3}
 --- !u!1 &6711397777496493011
 GameObject:
   m_ObjectHideFlags: 0

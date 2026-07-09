@@ -1,22 +1,26 @@
 using UnityEngine;
 
-// ====================================================================
+// =======================================================================
 // SlashProyectile.cs
 // Maneja el proyectil de cortes, scars dinámicos y destrucción de jaulas.
-// ====================================================================
+// =======================================================================
 public class SlashProjectile : MonoBehaviour
 {
     public float speed = 25f;
     public float lifetime = 1.5f;
     private float timer;
+    public float coreProtectionRadius = 0.5f;
 
     [Header("Efectos Visuales")]
     [Tooltip("El prefab del cubo delgado que restará geometría permanentemente.")]
     public GameObject scarPrefab;
 
+    private BossController cachedBoss;
+
     void OnEnable()
     {
         timer = 0f;
+        if (cachedBoss == null) cachedBoss = FindObjectOfType<BossController>();
     }
 
     void Update()
@@ -31,9 +35,7 @@ public class SlashProjectile : MonoBehaviour
     }
 
     void OnTriggerEnter(Collider other)
-    {
-        BossController boss = FindObjectOfType<BossController>();
-        
+    {   
         BossPart part = other.GetComponent<BossPart>();
         if (part != null)
         {
@@ -49,34 +51,32 @@ public class SlashProjectile : MonoBehaviour
 
         if (other.name.Contains("Core")) 
         {
-            if (boss != null && boss.IsCoreExposed())
+            if (cachedBoss != null && cachedBoss.IsCoreExposed())
             {
-                boss.TakeDamage(10);
+                cachedBoss.TakeDamage(10);
                 Vector3 surfaceHitPoint = other.ClosestPoint(transform.position);
                 SpawnScar(other.transform, surfaceHitPoint);
-            }
-            else
-            {
-                Debug.Log("El núcleo está protegido. Golpe bloqueado.");
             }
             return;
         }
 
-        if (other.name.Contains("Cage"))
+        CuttableSdfObject cuttable = other.GetComponent<CuttableSdfObject>();
+        if (cuttable != null)
         {
-            Debug.Log("¡Muro de la jaula destruido por un tajo!");
-            
-            if (SFXManager.Instance != null) 
-                SFXManager.Instance.PlayBossPartDestroyed();
-            
-            Destroy(other.gameObject);
-            gameObject.SetActive(false); 
+            Vector3 surfaceHitPoint = other.ClosestPoint(transform.position);
+            cuttable.RegisterSlash(surfaceHitPoint, transform.rotation);
             return;
         }
     }
 
     void SpawnScar(Transform parentTransform, Vector3 exactHitPoint)
     {
+        if (cachedBoss != null && !cachedBoss.IsCoreExposed() && cachedBoss.bossCore != null)
+        {
+            float distToCore = Vector3.Distance(exactHitPoint, cachedBoss.bossCore.position);
+            if (distToCore < coreProtectionRadius) return;
+        }
+
         if (scarPrefab != null)
         {
             GameObject scar = Instantiate(scarPrefab, exactHitPoint, transform.rotation);

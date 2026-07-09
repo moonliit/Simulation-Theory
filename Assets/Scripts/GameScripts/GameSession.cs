@@ -12,10 +12,13 @@ public class GameSession : MonoBehaviour
     [Header("Música del Nivel")]
     public AudioSource bgmSource;
 
+    public static bool IsTransitioningScene { get; private set; } = false;
+
     void Awake()
     {
         Instance = this;
         Time.timeScale = 1f; 
+        IsTransitioningScene = false;
         
         if (winPanel != null) winPanel.SetActive(false);
         if (losePanel != null) losePanel.SetActive(false);
@@ -49,12 +52,14 @@ public class GameSession : MonoBehaviour
 
     public void RestartGame()
     {
+        IsTransitioningScene = true;
         Time.timeScale = 1f;
         SceneManager.LoadScene(SceneManager.GetActiveScene().name);
     }
 
     public void ReturnToMainMenu()
     {
+        IsTransitioningScene = true;
         Time.timeScale = 1f;
         SceneManager.LoadScene("MainMenu");
     }

@@ -12,6 +12,7 @@ GameObject:
   - component: {fileID: 3794643649829593853}
   - component: {fileID: 4508076132985981543}
   - component: {fileID: 5845149900050496265}
+  - component: {fileID: -8267736220496482849}
   m_Layer: 0
   m_Name: SDF_Cage
   m_TagString: Untagged
@@ -84,3 +85,18 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::BossSdfProjectile
   speed: 0
   neonMaterial: {fileID: 2100000, guid: 4c59839f1a53bec4ead0583b89483375, type: 2}
+--- !u!114 &-8267736220496482849
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4510570875574926503}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 08a7dab55e9e71e449803d18fea2d78f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CuttableSdfObject
+  maxHealth: 20
+  damagePerSlash: 10
+  scarPrefab: {fileID: 1088544655632604695, guid: f0e58f2648ada384fadf265809b3960c, type: 3}

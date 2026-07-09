@@ -16,6 +16,16 @@ public class BossSdfProjectile : MonoBehaviour
 
     void Start()
     {
+        if (GetComponent<Rigidbody>() == null)
+        {
+            Rigidbody rb = gameObject.AddComponent<Rigidbody>();
+            rb.isKinematic = true;
+            rb.useGravity = false;
+        }
+
+        foreach (var col in GetComponentsInChildren<Collider>())
+            col.isTrigger = true;
+
         player = Camera.main.transform;
         if (speed > 0)
             transform.LookAt(player.position);
@@ -49,7 +59,7 @@ public class BossSdfProjectile : MonoBehaviour
 
     void OnDestroy()
     {
-        if (isQuitting) return;
+        if (isQuitting || GameSession.IsTransitioningScene) return;
 
         int count = Random.Range(5, 8);
         for (int i = 0; i < count; i++)

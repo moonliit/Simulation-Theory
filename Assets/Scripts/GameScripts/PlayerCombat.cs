@@ -104,6 +104,7 @@ public class PlayerCombat : MonoBehaviour
 
         SlashProjectile projScript = go.AddComponent<SlashProjectile>();
         projScript.scarPrefab = this.scarPrefab;
+        projScript.neonMaterial = this.neonMaterial;
 
         go.SetActive(false);
         return go;
@@ -152,6 +153,7 @@ public class PlayerCombat : MonoBehaviour
         activeWallCuttable.maxHealth = 30;
         activeWallCuttable.damagePerSlash = 10;
         activeWallCuttable.scarPrefab = this.scarPrefab;
+        activeWallCuttable.sparkMaterial = this.neonMaterial;
 
         activeWall.transform.localScale = wallSize;
         activeWall.SetActive(false);

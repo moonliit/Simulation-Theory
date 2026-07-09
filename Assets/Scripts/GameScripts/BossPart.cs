@@ -48,6 +48,12 @@ public class BossPart : MonoBehaviour
         SFXManager.Instance.PlaySound(SFXManager.Instance.bossHurt);
         boss.TriggerHitReaction();
 
+        if (CameraShake.Instance != null)
+        {
+            CameraShake.Instance.Shake(0.08f, 0.15f);
+            CameraShake.Instance.HitStop(0.03f, 0.05f);
+        }
+
         currentHealth -= amount;
         
         if (UIManager.Instance != null)
@@ -62,6 +68,13 @@ public class BossPart : MonoBehaviour
             Debug.Log($"¡Parte destruida: {gameObject.name}!");
             boss.ReportTowerDestroyed();
             ExplodeIntoFragments(8);
+
+            if (CameraShake.Instance != null) 
+            {
+                CameraShake.Instance.Shake(0.2f, 0.3f);
+                CameraShake.Instance.HitStop(0.08f, 0.02f);
+            }
+
             Destroy(gameObject); 
         }
     }

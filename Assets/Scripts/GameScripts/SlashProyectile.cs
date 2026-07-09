@@ -12,8 +12,8 @@ public class SlashProjectile : MonoBehaviour
     public float coreProtectionRadius = 0.5f;
 
     [Header("Efectos Visuales")]
-    [Tooltip("El prefab del cubo delgado que restará geometría permanentemente.")]
     public GameObject scarPrefab;
+    public Material neonMaterial;
 
     private BossController cachedBoss;
 
@@ -82,5 +82,7 @@ public class SlashProjectile : MonoBehaviour
             GameObject scar = Instantiate(scarPrefab, exactHitPoint, transform.rotation);
             scar.transform.SetParent(parentTransform, true);
         }
+
+        SparkBurst.Spawn(exactHitPoint, -transform.forward, neonMaterial); 
     }
 }

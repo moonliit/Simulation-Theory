@@ -100,3 +100,4 @@ MonoBehaviour:
   maxHealth: 20
   damagePerSlash: 10
   scarPrefab: {fileID: 1088544655632604695, guid: f0e58f2648ada384fadf265809b3960c, type: 3}
+  sparkMaterial: {fileID: 2100000, guid: 4c59839f1a53bec4ead0583b89483375, type: 2}

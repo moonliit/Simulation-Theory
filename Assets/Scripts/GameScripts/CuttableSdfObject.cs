@@ -9,6 +9,7 @@ public class CuttableSdfObject : MonoBehaviour
 
     [Header("Efectos")]
     public GameObject scarPrefab;
+    public Material sparkMaterial;
 
     void Awake() => currentHealth = maxHealth;
 
@@ -23,6 +24,8 @@ public class CuttableSdfObject : MonoBehaviour
             GameObject scar = Instantiate(scarPrefab, hitPoint, hitRotation);
             scar.transform.SetParent(transform, true);
         }
+
+        SparkBurst.Spawn(hitPoint, hitRotation * Vector3.back, sparkMaterial);
 
         if (SFXManager.Instance != null)
             SFXManager.Instance.PlaySound(SFXManager.Instance.bossHurt);

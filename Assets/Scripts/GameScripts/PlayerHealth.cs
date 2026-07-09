@@ -15,6 +15,8 @@ public class PlayerHealth : MonoBehaviour
     [Header("Efectos de Muerte (Glitch)")]
     public Image systemFailurePanel;
     public float glitchDuration = 2.0f;
+    private RectTransform failurePanelRect;
+    private Image[] glitchBars;
 
     [Header("Efectos de Daño")]
     public Image damageOverlay;
@@ -33,6 +35,8 @@ public class PlayerHealth : MonoBehaviour
             Color c = systemFailurePanel.color;
             c.a = 0f;
             systemFailurePanel.color = c;
+            failurePanelRect = systemFailurePanel.rectTransform;
+            BuildGlitchBars();
         }
 
         if (damageOverlay != null)
@@ -116,28 +120,82 @@ public class PlayerHealth : MonoBehaviour
     {
         if (systemFailurePanel != null)
         {
+            Vector2 originalPos = failurePanelRect.anchoredPosition;
             float elapsed = 0f;
-            Color[] glitchColors = new Color[] { Color.black, Color.red, Color.cyan, Color.magenta, Color.white };
 
             while (elapsed < glitchDuration)
             {
-                Color randomColor = glitchColors[Random.Range(0, glitchColors.Length)];
-                randomColor.a = 1f;
-                
-                systemFailurePanel.color = randomColor;
+                bool dropout = Random.value < 0.15f;
 
-                float flickerTime = Random.Range(0.05f, 0.15f);
-                yield return new WaitForSeconds(flickerTime);
+                if (dropout)
+                {
+                    systemFailurePanel.color = Color.black;
+                    foreach (var bar in glitchBars) bar.gameObject.SetActive(false);
+                    failurePanelRect.anchoredPosition = originalPos;
+                }
+                else
+                {
+                    systemFailurePanel.color = Random.value < 0.4f
+                        ? new Color(1f, 0f, 0.15f, 1f)
+                        : new Color(Random.value, Random.value, Random.value, 1f);
+
+                    RandomizeGlitchBars();
+                    failurePanelRect.anchoredPosition = originalPos + new Vector2(Random.Range(-15f, 15f), Random.Range(-8f, 8f));
+                }
+
+                float flickerTime = Random.Range(0.025f, 0.09f);
+                yield return new WaitForSecondsRealtime(flickerTime);
                 elapsed += flickerTime;
             }
 
-            systemFailurePanel.color = new Color(255f, 0f, 0f, 1f);
-            yield return new WaitForSeconds(0.5f);
+            foreach (var bar in glitchBars) bar.gameObject.SetActive(false);
+            failurePanelRect.anchoredPosition = originalPos;
+            systemFailurePanel.color = new Color(1f, 0f, 0f, 1f);
+            yield return new WaitForSecondsRealtime(0.5f);
         }
 
         if (GameSession.Instance != null)
         {
             GameSession.Instance.TriggerDefeat();
+        }
+    }
+
+    private void BuildGlitchBars()
+    {
+        glitchBars = new Image[6];
+        for (int i = 0; i < glitchBars.Length; i++)
+        {
+            GameObject barObj = new GameObject("GlitchBar_" + i);
+            barObj.transform.SetParent(systemFailurePanel.transform, false);
+
+            Image img = barObj.AddComponent<Image>();
+            img.color = Color.white;
+
+            RectTransform rt = img.rectTransform;
+            rt.anchorMin = new Vector2(0f, 0.5f);
+            rt.anchorMax = new Vector2(1f, 0.5f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+
+            barObj.SetActive(false);
+            glitchBars[i] = img;
+        }
+    }
+
+    private void RandomizeGlitchBars()
+    {
+        foreach (var bar in glitchBars)
+        {
+            bool show = Random.value < 0.5f;
+            bar.gameObject.SetActive(show);
+            if (!show) continue;
+
+            RectTransform rt = bar.rectTransform;
+            rt.sizeDelta = new Vector2(0f, Random.Range(4f, 30f));
+            rt.anchoredPosition = new Vector2(Random.Range(-40f, 40f), Random.Range(-Screen.height * 0.5f, Screen.height * 0.5f));
+
+            bar.color = Random.value < 0.3f
+                ? Color.black
+                : new Color(Random.value, Random.value, Random.value, 1f);
         }
     }
 }

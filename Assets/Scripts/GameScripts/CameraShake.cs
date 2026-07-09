@@ -18,7 +18,7 @@ public class CameraShake : MonoBehaviour
 
     public void Shake(float duration, float magnitude)
     {
-        StopAllCoroutines();
+        StopCoroutine(nameof(ShakeRoutine));
         StartCoroutine(ShakeRoutine(duration, magnitude));
     }
 
@@ -33,10 +33,36 @@ public class CameraShake : MonoBehaviour
 
             transform.localPosition = new Vector3(originalPos.x + x, originalPos.y + y, originalPos.z);
 
-            elapsed += Time.deltaTime;
+            elapsed += Time.unscaledDeltaTime;
             yield return null;
         }
 
         transform.localPosition = originalPos;
+    }
+
+    private float hitStopEndTime = -1f;
+    private Coroutine hitStopCoroutine;
+
+    public void HitStop(float duration = 0.04f, float freezeScale = 0.05f)
+    {
+        float requestedEnd = Time.unscaledTime + duration;
+        if (requestedEnd > hitStopEndTime)
+        {
+            hitStopEndTime = requestedEnd;
+            if (hitStopCoroutine == null)
+                hitStopCoroutine = StartCoroutine(HitStopRoutine(freezeScale));
+        }
+    }
+
+    private IEnumerator HitStopRoutine(float freezeScale)
+    {
+        Time.timeScale = freezeScale;
+
+        while (Time.unscaledTime < hitStopEndTime)
+            yield return null;
+
+        Time.timeScale = 1f;
+        hitStopCoroutine = null;
+        hitStopEndTime = -1f;
     }
 }

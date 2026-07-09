@@ -137,6 +137,7 @@ public class BossController : MonoBehaviour
         float distance = Vector3.Distance(bossCore.position, targetPosition) + 5f; 
         
         SFXManager.Instance.PlaySound(SFXManager.Instance.bossRailgunFire);
+        if (CameraShake.Instance != null) CameraShake.Instance.Shake(0.15f, 0.35f);
 
         if (Physics.Raycast(bossCore.position, direction, out RaycastHit hit, distance))
         {
@@ -193,11 +194,12 @@ public class BossController : MonoBehaviour
 
         Vector3 centerOffset = Vector3.up * 1.2f;
         Vector3 aimPosition = player.position + centerOffset;
-        int numberOfShots = 20;
+        int numberOfShots = 15;
 
         for (int i = 0; i < numberOfShots; i++)
         {
             SFXManager.Instance.PlaySound(SFXManager.Instance.bossGatling);
+            if (CameraShake.Instance != null) CameraShake.Instance.Shake(0.05f, 0.08f);
 
             aimPosition = Vector3.Lerp(aimPosition, player.position + centerOffset, 0.5f);
 
@@ -267,6 +269,7 @@ public class BossController : MonoBehaviour
             SFXManager.Instance.loopSource.clip = SFXManager.Instance.energySweep;
             SFXManager.Instance.loopSource.Play();
         }
+        if (CameraShake.Instance != null) CameraShake.Instance.Shake(0.2f, 0.15f);
 
         elapsed = 0f;
         while (elapsed < sweepDuration)
@@ -378,6 +381,12 @@ public class BossController : MonoBehaviour
         Debug.Log("¡BOOM! Railgun de la jaula dispara.");
 
         SFXManager.Instance.PlaySound(SFXManager.Instance.bossRailgunFire);
+        if (CameraShake.Instance != null)
+        {
+            CameraShake.Instance.Shake(0.25f, 0.5f);
+            CameraShake.Instance.HitStop(0.05f, 0.03f);
+        }
+
         if (Vector3.Distance(player.position, center) < 2.5f)
         {
             Debug.Log("¡Jugador no escapó de la jaula! DAÑO MASIVO.");
@@ -518,6 +527,12 @@ public class BossController : MonoBehaviour
         if (activeTowers <= 0)
         {
             Debug.Log("¡NÚCLEO EXPUESTO! ¡ES TU OPORTUNIDAD!");
+
+            if (CameraShake.Instance != null)
+            {
+                CameraShake.Instance.Shake(0.3f, 0.4f);
+                CameraShake.Instance.HitStop(0.15f, 0.02f);
+            }
 
             if (UIManager.Instance != null)
                 UIManager.Instance.SetCoreVulnerable();

@@ -2,7 +2,7 @@ using UnityEngine;
 
 // ====================================================================
 // SlashProyectile.cs
-// Maneja el proyectil de cortes
+// Maneja el proyectil de cortes, scars dinámicos y destrucción de jaulas.
 // ====================================================================
 public class SlashProjectile : MonoBehaviour
 {
@@ -38,7 +38,10 @@ public class SlashProjectile : MonoBehaviour
         if (part != null)
         {
             if (part.CanBeScarred())
-                SpawnScar(part.transform);
+            {
+                Vector3 surfaceHitPoint = other.ClosestPoint(transform.position);
+                SpawnScar(part.transform, surfaceHitPoint);
+            }
             
             part.TakeDamage(10);
             return;
@@ -49,7 +52,8 @@ public class SlashProjectile : MonoBehaviour
             if (boss != null && boss.IsCoreExposed())
             {
                 boss.TakeDamage(10);
-                SpawnScar(other.transform);
+                Vector3 surfaceHitPoint = other.ClosestPoint(transform.position);
+                SpawnScar(other.transform, surfaceHitPoint);
             }
             else
             {
@@ -66,19 +70,16 @@ public class SlashProjectile : MonoBehaviour
                 SFXManager.Instance.PlayBossPartDestroyed();
             
             Destroy(other.gameObject);
-            
             gameObject.SetActive(false); 
             return;
         }
     }
 
-    void SpawnScar(Transform parentTransform)
+    void SpawnScar(Transform parentTransform, Vector3 exactHitPoint)
     {
         if (scarPrefab != null)
         {
-            float penetrationDepth = 0.4f; 
-            Vector3 deepPosition = transform.position + (transform.forward * penetrationDepth);
-            GameObject scar = Instantiate(scarPrefab, deepPosition, transform.rotation);
+            GameObject scar = Instantiate(scarPrefab, exactHitPoint, transform.rotation);
             scar.transform.SetParent(parentTransform, true);
         }
     }

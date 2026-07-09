@@ -32,11 +32,21 @@ public class BossPart : MonoBehaviour
 
     public void TakeDamage(int amount)
     {
-        if (isCore && !boss.IsCoreExposed())
+        if (isCore)
         {
-            Debug.Log("¡El núcleo es invulnerable! Destruye las torres protectoras primero.");
+            if (!boss.IsCoreExposed())
+            {
+                Debug.Log("¡El núcleo es invulnerable! Destruye las torres protectoras primero.");
+                return;
+            }
+            
+            boss.TakeDamage(amount);
+            boss.TriggerHitReaction();
             return;
         }
+
+        SFXManager.Instance.PlaySound(SFXManager.Instance.bossHurt);
+        boss.TriggerHitReaction();
 
         currentHealth -= amount;
         
@@ -48,20 +58,14 @@ public class BossPart : MonoBehaviour
 
         if (currentHealth <= 0)
         {
-            if (isCore)
-            {
-                boss.TakeDamage(9999);
-            }
-            else
-            {
-                Debug.Log($"¡Parte destruida: {gameObject.name}!");
-                boss.ReportTowerDestroyed();
-                ExplodeIntoFragments(8);
-                Destroy(gameObject); 
-            }
+            SFXManager.Instance.PlayBossPartDestroyed();
+            Debug.Log($"¡Parte destruida: {gameObject.name}!");
+            boss.ReportTowerDestroyed();
+            ExplodeIntoFragments(8);
+            Destroy(gameObject); 
         }
     }
-
+    
     private void ExplodeIntoFragments(int count)
     {
         for (int i = 0; i < count; i++)
@@ -79,5 +83,14 @@ public class BossPart : MonoBehaviour
 
             Destroy(frag, 3f); 
         }
+    }
+
+    public bool CanBeScarred()
+    {
+        if (isCore && !boss.IsCoreExposed())
+        {
+            return false;
+        }
+        return true;
     }
 }

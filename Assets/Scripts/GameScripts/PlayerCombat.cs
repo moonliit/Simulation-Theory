@@ -54,11 +54,13 @@ public class PlayerCombat : MonoBehaviour
             nextSlashTime = Time.time + slashCooldown;
             if (swordAnim != null)
                 swordAnim.PlayAttackAnimation();
+            SFXManager.Instance.PlaySound(SFXManager.Instance.playerSlash);
             FireSlash();
         }
 
         if (Input.GetMouseButtonDown(1) && Time.time >= nextWallTime)
         {
+            SFXManager.Instance.PlaySound(SFXManager.Instance.wallRaise);
             nextWallTime = Time.time + wallCooldown;
             StartCoroutine(SpawnWallRoutine());
         }

@@ -11,6 +11,7 @@ GameObject:
   - component: {fileID: 3071970137915481123}
   - component: {fileID: 3030234065811898275}
   - component: {fileID: 5989840864385138820}
+  - component: {fileID: 8480264825781630948}
   m_Layer: 0
   m_Name: SDF_Scar
   m_TagString: Untagged
@@ -52,7 +53,7 @@ BoxCollider:
   m_ProvidesContacts: 0
   m_Enabled: 0
   serializedVersion: 3
-  m_Size: {x: 1, y: 1, z: 1}
+  m_Size: {x: 0.5, y: 0.5, z: 0.5}
   m_Center: {x: 0, y: 0, z: 0}
 --- !u!114 &5989840864385138820
 MonoBehaviour:
@@ -69,3 +70,15 @@ MonoBehaviour:
   shapeType: 0
   isSubtractive: 1
   isPartOfCsgTree: 0
+--- !u!114 &8480264825781630948
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1088544655632604695}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7c7872d2959f76748a1dad93bbc24d78, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ScarLimiter

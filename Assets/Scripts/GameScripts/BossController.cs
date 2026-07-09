@@ -8,6 +8,8 @@ using System.Collections.Generic;
 // ====================================================================
 public class BossController : MonoBehaviour
 {
+    private Coroutine hitReactionCoroutine;
+
     public enum BossState { Idle, Telegraphing, Attacking, Cooldown, Dead }
     
     [Header("Estado Actual (Solo lectura)")]
@@ -22,19 +24,17 @@ public class BossController : MonoBehaviour
     public int maxHealth = 1000;
     private int currentHealth;
 
-    [Header("Prefabs de Ataques")]
+    [Header("Prefabs y Efectos de Ataques")]
     public GameObject sdfProjectilePrefab;
     public LineRenderer railgunLine;
-
-    [Header("Sistema de Defensas")]
-    public int activeTowers = 4;
-
-    [Header("Nuevos Ataques (Prefabs y Efectos)")]
     public LineRenderer gatlingLine;
     public LineRenderer sweepLine1;
     public LineRenderer sweepLine2;
     public GameObject sdfCageWallPrefab;
 
+    [Header("Sistema de Defensas")]
+    public int activeTowers = 4;
+    
     [Header("Efectos de Muerte")]
     public Material neonMaterial;
 
@@ -45,7 +45,7 @@ public class BossController : MonoBehaviour
         if (UIManager.Instance != null)
         {
             UIManager.Instance.UpdateBossCoreHealth(currentHealth, maxHealth);
-            UIManager.Instance.SetCoreInvulnerable(); // Inicia en gris
+            UIManager.Instance.SetCoreInvulnerable();
         }
         
         if (player == null)
@@ -103,6 +103,8 @@ public class BossController : MonoBehaviour
         currentState = BossState.Telegraphing;
         if (railgunLine != null) railgunLine.gameObject.SetActive(true);
 
+        SFXManager.Instance.PlaySound(SFXManager.Instance.bossRailgunCharge);
+
         float prepTime = 1.5f;
         float elapsed = 0f;
         Vector3 targetPosition = player.position + Vector3.up * 1.2f;
@@ -134,6 +136,8 @@ public class BossController : MonoBehaviour
         Vector3 direction = (targetPosition - bossCore.position).normalized;
         float distance = Vector3.Distance(bossCore.position, targetPosition) + 5f; 
         
+        SFXManager.Instance.PlaySound(SFXManager.Instance.bossRailgunFire);
+
         if (Physics.Raycast(bossCore.position, direction, out RaycastHit hit, distance))
         {
             if (railgunLine != null) railgunLine.SetPosition(1, hit.point);
@@ -173,6 +177,8 @@ public class BossController : MonoBehaviour
         {
             Instantiate(sdfProjectilePrefab, bossCore.position + Vector3.left * 3f, Quaternion.identity);
             Instantiate(sdfProjectilePrefab, bossCore.position + Vector3.right * 3f, Quaternion.identity);
+
+            SFXManager.Instance.PlaySound(SFXManager.Instance.missileFlight);
         }
 
         yield return new WaitForSeconds(1f);
@@ -191,6 +197,8 @@ public class BossController : MonoBehaviour
 
         for (int i = 0; i < numberOfShots; i++)
         {
+            SFXManager.Instance.PlaySound(SFXManager.Instance.bossGatling);
+
             aimPosition = Vector3.Lerp(aimPosition, player.position + centerOffset, 0.5f);
 
             if (gatlingLine != null)
@@ -253,9 +261,17 @@ public class BossController : MonoBehaviour
         if (sweepLine2 != null) sweepLine2.gameObject.SetActive(true);
 
         float sweepDuration = 4f;
+        
+        if (SFXManager.Instance.loopSource != null)
+        {
+            SFXManager.Instance.loopSource.clip = SFXManager.Instance.energySweep;
+            SFXManager.Instance.loopSource.Play();
+        }
+
         elapsed = 0f;
         while (elapsed < sweepDuration)
         {
+            
             bossCore.Rotate(Vector3.up, 180f * Time.deltaTime);
 
             Vector3 rightDir = bossCore.right;
@@ -280,6 +296,9 @@ public class BossController : MonoBehaviour
 
         if (sweepLine1 != null) sweepLine1.gameObject.SetActive(false);
         if (sweepLine2 != null) sweepLine2.gameObject.SetActive(false);
+
+        if (SFXManager.Instance.loopSource != null) 
+            SFXManager.Instance.loopSource.Stop();
 
         elapsed = 0f;
         float ascendTime = 1f;
@@ -340,6 +359,9 @@ public class BossController : MonoBehaviour
 
         if (railgunLine != null) railgunLine.gameObject.SetActive(true);
         float chargeTime = 2.2f;
+
+        SFXManager.Instance.PlaySound(SFXManager.Instance.bossRailgunCharge);
+
         elapsed = 0f;
 
         while (elapsed < chargeTime)
@@ -354,6 +376,8 @@ public class BossController : MonoBehaviour
         }
 
         Debug.Log("¡BOOM! Railgun de la jaula dispara.");
+
+        SFXManager.Instance.PlaySound(SFXManager.Instance.bossRailgunFire);
         if (Vector3.Distance(player.position, center) < 2.5f)
         {
             Debug.Log("¡Jugador no escapó de la jaula! DAÑO MASIVO.");
@@ -386,12 +410,15 @@ public class BossController : MonoBehaviour
     public void TakeDamage(int damageAmount)
     {
         if (currentState == BossState.Dead) return;
+        
+        SFXManager.Instance.PlaySound(SFXManager.Instance.bossHurt);
         currentHealth -= damageAmount;
+        if (CameraShake.Instance != null) CameraShake.Instance.Shake(0.1f, 0.2f);
 
         if (UIManager.Instance != null)
         {
             UIManager.Instance.ShowHitmarker();
-            UIManager.Instance.UpdateBossCoreHealth(currentHealth, maxHealth); // [ACTUALIZADO]
+            UIManager.Instance.UpdateBossCoreHealth(currentHealth, maxHealth);
         }
 
         Debug.Log($"Boss recibe {damageAmount} de daño. Vida restante: {currentHealth}");
@@ -423,6 +450,8 @@ public class BossController : MonoBehaviour
         GuardianBossFlight flightScript = GetComponent<GuardianBossFlight>();
         if (flightScript != null) flightScript.enabled = false;
 
+        SFXManager.Instance.StartCriticalVibration();
+
         Vector3 originalPos = bossCore.position;
 
         float elapsed = 0f;
@@ -435,6 +464,8 @@ public class BossController : MonoBehaviour
 
         bossCore.position = originalPos; 
         bossCore.gameObject.SetActive(false);
+
+        SFXManager.Instance.ExecuteFinalExplosion();
 
         for (int i = 0; i < 40; i++)
         {
@@ -464,8 +495,16 @@ public class BossController : MonoBehaviour
             Destroy(rayObj, 0.5f);
         }
 
-        yield return new WaitForSeconds(3f);
-        // Aquí podrías cargar la escena de "Victoria" o Menú Principal
+        yield return new WaitForSeconds(2f);
+
+        if (GameSession.Instance != null) 
+        {
+            if (GameSession.Instance.bgmSource != null) 
+                GameSession.Instance.bgmSource.Play();
+                
+            GameSession.Instance.TriggerVictory();
+        }
+
     }
 
     public bool IsCoreExposed()
@@ -514,6 +553,8 @@ public class BossController : MonoBehaviour
         if (sweepLine1 != null) sweepLine1.gameObject.SetActive(true);
         if (sweepLine2 != null) sweepLine2.gameObject.SetActive(true);
 
+        SFXManager.Instance.StartLastStand();
+
         while (currentState != BossState.Dead)
         {
             bossCore.Rotate(Vector3.up, 180f * Time.deltaTime);
@@ -532,6 +573,37 @@ public class BossController : MonoBehaviour
             }
 
             yield return null; 
+        }
+    }
+    
+    public void TriggerHitReaction()
+    {
+        if (currentState == BossState.Dead) return;
+
+        if (hitReactionCoroutine != null) StopCoroutine(hitReactionCoroutine);
+        hitReactionCoroutine = StartCoroutine(HitReactionRoutine());
+    }
+
+    private IEnumerator HitReactionRoutine()
+    {
+        GuardianBossFlight flightScript = GetComponent<GuardianBossFlight>();
+        if (flightScript != null) flightScript.enabled = false;
+
+        Vector3 originalPos = transform.position;
+        float elapsed = 0f;
+        
+        while (elapsed < 0.15f)
+        {
+            transform.position = originalPos + Random.insideUnitSphere * 0.3f;
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        transform.position = originalPos;
+
+        if (flightScript != null && currentState != BossState.Dead)
+        {
+            flightScript.enabled = true;
         }
     }
 }

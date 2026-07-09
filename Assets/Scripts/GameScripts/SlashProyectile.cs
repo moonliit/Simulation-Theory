@@ -32,38 +32,54 @@ public class SlashProjectile : MonoBehaviour
 
     void OnTriggerEnter(Collider other)
     {
+        BossController boss = FindObjectOfType<BossController>();
+        
         BossPart part = other.GetComponent<BossPart>();
         if (part != null)
         {
-            BossController boss = part.GetComponentInParent<BossController>();
-            bool isProtectedCore = part.isCore && boss != null && !boss.IsCoreExposed();
+            if (part.CanBeScarred())
+                SpawnScar(part.transform);
+            
+            part.TakeDamage(10);
+            return;
+        }
 
-            if (!isProtectedCore)
+        if (other.name.Contains("Core")) 
+        {
+            if (boss != null && boss.IsCoreExposed())
             {
-                part.TakeDamage(10); 
-                if (scarPrefab != null)
-                {
-                    float penetrationDepth = 0.8f;
-                    Vector3 deepPosition = transform.position + (transform.forward * penetrationDepth);
-                    GameObject scar = Instantiate(scarPrefab, deepPosition, transform.rotation);
-                    scar.transform.SetParent(part.transform, true);
-                }
+                boss.TakeDamage(10);
+                SpawnScar(other.transform);
             }
             else
             {
-                Debug.Log("Ataque bloqueado: Destruye las torres primero.");
+                Debug.Log("El núcleo está protegido. Golpe bloqueado.");
             }
+            return;
+        }
 
+        if (other.name.Contains("Cage"))
+        {
+            Debug.Log("¡Muro de la jaula destruido por un tajo!");
+            
+            if (SFXManager.Instance != null) 
+                SFXManager.Instance.PlayBossPartDestroyed();
+            
+            Destroy(other.gameObject);
+            
             gameObject.SetActive(false); 
             return;
         }
-        
-        BossSdfProjectile enemyProj = other.GetComponent<BossSdfProjectile>();
-        if (enemyProj != null)
+    }
+
+    void SpawnScar(Transform parentTransform)
+    {
+        if (scarPrefab != null)
         {
-            Destroy(enemyProj.gameObject);
-            gameObject.SetActive(false);
-            return;
+            float penetrationDepth = 0.4f; 
+            Vector3 deepPosition = transform.position + (transform.forward * penetrationDepth);
+            GameObject scar = Instantiate(scarPrefab, deepPosition, transform.rotation);
+            scar.transform.SetParent(parentTransform, true);
         }
     }
 }

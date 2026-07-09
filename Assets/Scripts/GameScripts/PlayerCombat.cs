@@ -39,6 +39,9 @@ public class PlayerCombat : MonoBehaviour
     private CuttableSdfObject activeWallCuttable;
     private float nextWallTime = 0f;
 
+    private readonly float[] cutAngles = { 0f, 90f, 45f, -45f };
+    private bool[] angleFlipState = new bool[4]; 
+
     void Start()
     {
         if (playerCamera == null)
@@ -53,10 +56,16 @@ public class PlayerCombat : MonoBehaviour
         if (Input.GetMouseButtonDown(0) && Time.time >= nextSlashTime)
         {
             nextSlashTime = Time.time + slashCooldown;
+            int angleIndex = Random.Range(0, cutAngles.Length);
+            float selectedAngle = cutAngles[angleIndex];
+            bool flip = angleFlipState[angleIndex];
+            angleFlipState[angleIndex] = !flip; 
+
             if (swordAnim != null)
-                swordAnim.PlayAttackAnimation();
+                swordAnim.PlayAttackAnimation(selectedAngle, flip);
+
             SFXManager.Instance.PlaySound(SFXManager.Instance.playerSlash);
-            FireSlash();
+            FireSlash(selectedAngle);
         }
 
         if (Input.GetMouseButtonDown(1) && Time.time >= nextWallTime)
@@ -117,16 +126,13 @@ public class PlayerCombat : MonoBehaviour
             cutPool[i] = CreateSlashObject(i);
     }
 
-    void FireSlash()
+    void FireSlash(float selectedAngle)
     {
         if (cutPool[nextCutIndex] == null)
             cutPool[nextCutIndex] = CreateSlashObject(nextCutIndex);
 
         GameObject cut = cutPool[nextCutIndex];
         cut.transform.position = playerCamera.position + playerCamera.forward * 0.5f;
-
-        float[] angles = { 0f, 90f, 45f, -45f };
-        float selectedAngle = angles[Random.Range(0, angles.Length)];
 
         Quaternion forwardRot = Quaternion.LookRotation(playerCamera.forward);
         Quaternion rollRot = Quaternion.Euler(0, 0, selectedAngle);

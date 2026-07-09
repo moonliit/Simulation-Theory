@@ -1126,7 +1126,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 06332fecac5fb2f4c8438cec99d1dbcf, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FramerateCap
-  targetFPS: 72
+  targetFPS: 144
 --- !u!4 &876690942
 Transform:
   m_ObjectHideFlags: 0

@@ -16,7 +16,6 @@ public class SdfPrimitiveSubscriber : MonoBehaviour
     [Tooltip("Si true, esta primitiva no toca al Octree Manager directamente. Un SdfCsgTreeRootInstance padre maneja sus bounds y datos.")]
     public bool isPartOfCsgTree = false;
 
-    // ---- Registro estático global: reemplaza el FindObjectsByType ----
     public static readonly List<SdfPrimitiveSubscriber> All = new List<SdfPrimitiveSubscriber>();
 
     private readonly List<SdfOctreeNode> occupiedNodes = new List<SdfOctreeNode>();

@@ -8,78 +8,122 @@ public class SwordViewmodel : MonoBehaviour
     public float maxSwayAmount = 5f;
     public float swaySmoothness = 10f;
 
-    [Header("Animación de Tajo")]
-    public Vector3 swingRotation = new Vector3(30f, -60f, -45f); // El ángulo del tajo
-    public float swingSpeed = 20f; // Qué tan rápido corta
-    public float returnSpeed = 8f; // Qué tan rápido regresa a la guardia
+    [System.Serializable]
+    public class SwingPreset
+    {
+        public string label;
+        public float cutAngle;
 
+        [Header("Dirección A")]
+        public Vector3 windupA;
+        public Vector3 swingA;
+
+        [Header("Dirección B (opuesta, para alternar)")]
+        public Vector3 windupB;
+        public Vector3 swingB;
+    }
+
+    [Header("Animaciones de Tajo por Dirección")]
+    public SwingPreset[] swingPresets = new SwingPreset[]
+    {
+        new SwingPreset { label = "Horizontal", cutAngle = 0f,
+            windupA = new Vector3(15, 0,  65),  swingA = new Vector3(5, 0, -100),
+            windupB = new Vector3(15, 0, -65),  swingB = new Vector3(5, 0,  100) },
+
+        new SwingPreset { label = "Vertical", cutAngle = 90f,
+            windupA = new Vector3(-45, 0,  10), swingA = new Vector3(85, 0, -10),
+            windupB = new Vector3( 70, 0, -10), swingB = new Vector3(-60, 0, 10) },
+
+        new SwingPreset { label = "Diagonal /", cutAngle = 45f,
+            windupA = new Vector3(-30, 0, -40), swingA = new Vector3(60, 0,  70),
+            windupB = new Vector3( 35, 0,  45), swingB = new Vector3(-45, 0, -65) },
+
+        new SwingPreset { label = "Diagonal \\", cutAngle = -45f,
+            windupA = new Vector3(-30, 0,  40), swingA = new Vector3(60, 0, -70),
+            windupB = new Vector3( 35, 0, -45), swingB = new Vector3(-45, 0,  65) },
+    };
+
+    public Vector3 fallbackWindup = new Vector3(10, -30, 15);
+    public Vector3 fallbackSwing = new Vector3(30, -60, -45);
+
+    [Header("Velocidades")]
+    public float windupSpeed = 25f;
+    public float swingSpeed = 14f;
+    public float returnSpeed = 8f;
     private Quaternion initialRotation;
     private bool isAttacking = false;
 
     void Start()
     {
-        // Guardamos la rotación original (la pose de guardia)
         initialRotation = transform.localRotation;
     }
 
     void Update()
     {
-        // Si no está atacando, la espada se balancea con la cámara
-        if (!isAttacking)
-        {
-            ApplySway();
-        }
+        if (!isAttacking) ApplySway();
     }
 
     private void ApplySway()
     {
-        // Capturamos el movimiento del ratón
         float mouseX = -Input.GetAxis("Mouse X") * swayAmount;
         float mouseY = -Input.GetAxis("Mouse Y") * swayAmount;
-
-        // Lo limitamos para que la espada no dé vueltas locas
         mouseX = Mathf.Clamp(mouseX, -maxSwayAmount, maxSwayAmount);
         mouseY = Mathf.Clamp(mouseY, -maxSwayAmount, maxSwayAmount);
 
-        // Calculamos a dónde debería rotar
         Quaternion swayRotation = Quaternion.Euler(mouseY, mouseX, 0);
         Quaternion targetRotation = initialRotation * swayRotation;
-
-        // Rotamos suavemente hacia ese objetivo
         transform.localRotation = Quaternion.Lerp(transform.localRotation, targetRotation, Time.deltaTime * swaySmoothness);
     }
 
-    // Esta función será llamada por tu PlayerCombat.cs
-    public void PlayAttackAnimation()
+    public void PlayAttackAnimation(float cutAngle, bool flip)
     {
-        if (!isAttacking)
+        if (isAttacking) return;
+
+        Vector3 windup = fallbackWindup;
+        Vector3 swing = fallbackSwing;
+
+        foreach (var preset in swingPresets)
         {
-            StartCoroutine(SwingRoutine());
+            if (Mathf.Approximately(preset.cutAngle, cutAngle))
+            {
+                windup = flip ? preset.windupB : preset.windupA;
+                swing = flip ? preset.swingB : preset.swingA;
+                break;
+            }
         }
+
+        StartCoroutine(SwingRoutine(windup, swing));
     }
 
-    private IEnumerator SwingRoutine()
+    private IEnumerator SwingRoutine(Vector3 windupEuler, Vector3 swingEuler)
     {
         isAttacking = true;
 
-        // 1. EL TAJO (Movimiento brusco hacia el objetivo)
-        Quaternion targetSwing = initialRotation * Quaternion.Euler(swingRotation);
-        float t = 0;
-        
+        Quaternion windupPose = initialRotation * Quaternion.Euler(windupEuler);
+        Quaternion swingPose = initialRotation * Quaternion.Euler(swingEuler);
+
+        float t = 0f;
         while (t < 1f)
         {
-            t += Time.deltaTime * swingSpeed;
-            // Usamos Slerp para rotaciones esféricas suaves
-            transform.localRotation = Quaternion.Slerp(initialRotation, targetSwing, t);
+            t += Time.deltaTime * windupSpeed;
+            transform.localRotation = Quaternion.Slerp(initialRotation, windupPose, t);
             yield return null;
         }
 
-        // 2. RECUPERACIÓN (Movimiento suave de regreso)
-        t = 0;
+        t = 0f;
+        while (t < 1f)
+        {
+            t += Time.deltaTime * swingSpeed;
+            float eased = 1f - Mathf.Pow(1f - Mathf.Clamp01(t), 2f);
+            transform.localRotation = Quaternion.Slerp(windupPose, swingPose, eased);
+            yield return null;
+        }
+
+        t = 0f;
         while (t < 1f)
         {
             t += Time.deltaTime * returnSpeed;
-            transform.localRotation = Quaternion.Slerp(targetSwing, initialRotation, t);
+            transform.localRotation = Quaternion.Slerp(swingPose, initialRotation, t);
             yield return null;
         }
 

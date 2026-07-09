@@ -943,7 +943,7 @@ AudioSource:
   m_audioClip: {fileID: 0}
   m_Resource: {fileID: 0}
   m_PlayOnAwake: 0
-  m_Volume: 1
+  m_Volume: 0.75
   m_Pitch: 1
   Loop: 0
   Mute: 0
@@ -1083,7 +1083,7 @@ AudioSource:
   m_audioClip: {fileID: 0}
   m_Resource: {fileID: 0}
   m_PlayOnAwake: 1
-  m_Volume: 1
+  m_Volume: 0.75
   m_Pitch: 1
   Loop: 0
   Mute: 0
@@ -3892,7 +3892,7 @@ MonoBehaviour:
   currentState: 0
   player: {fileID: 578279247}
   bossCore: {fileID: 1795254988}
-  timeBetweenAttacks: 2
+  timeBetweenAttacks: 1.5
   maxHealth: 200
   sdfProjectilePrefab: {fileID: 1753458694954337793, guid: 0512d86e1d79b0c46925af3f7d215e30, type: 3}
   railgunLine: {fileID: 848720585}
@@ -4867,7 +4867,34 @@ MonoBehaviour:
   swayAmount: 2
   maxSwayAmount: 5
   swaySmoothness: 10
-  swingRotation: {x: 30, y: -60, z: -45}
+  swingPresets:
+  - label: Horizontal
+    cutAngle: 0
+    windupA: {x: 10, y: -135, z: 20}
+    swingA: {x: -5, y: 135, z: -30}
+    windupB: {x: 10, y: 135, z: -20}
+    swingB: {x: -5, y: -135, z: 30}
+  - label: Vertical
+    cutAngle: 90
+    windupA: {x: -135, y: 10, z: 15}
+    swingA: {x: 70, y: -5, z: -15}
+    windupB: {x: 135, y: -10, z: -15}
+    swingB: {x: -70, y: 5, z: 15}
+  - label: Diagonal /
+    cutAngle: 45
+    windupA: {x: -90, y: -90, z: 45}
+    swingA: {x: 90, y: 90, z: -45}
+    windupB: {x: 90, y: 90, z: -45}
+    swingB: {x: -90, y: -90, z: 45}
+  - label: Diagonal \
+    cutAngle: -45
+    windupA: {x: -25, y: 35, z: -25}
+    swingA: {x: 45, y: -65, z: 35}
+    windupB: {x: 25, y: -35, z: 25}
+    swingB: {x: -40, y: 60, z: -30}
+  fallbackWindup: {x: 10, y: -30, z: 15}
+  fallbackSwing: {x: 30, y: -60, z: -45}
+  windupSpeed: 25
   swingSpeed: 20
   returnSpeed: 8
 --- !u!1 &1126721729
@@ -8144,7 +8171,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 06332fecac5fb2f4c8438cec99d1dbcf, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FramerateCap
-  targetFPS: 72
+  targetFPS: 144
 --- !u!4 &1853095458
 Transform:
   m_ObjectHideFlags: 0

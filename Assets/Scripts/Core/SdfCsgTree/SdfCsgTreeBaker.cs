@@ -35,17 +35,14 @@ public class SdfCsgTreeBaker : MonoBehaviour
         sb.AppendLine($"    return {finalResultVariable};");
         sb.AppendLine("}");
 
-        // Save directly to your Assets folder so the shader can see it immediately
         string filePath = Path.Combine(Application.dataPath, $"Shaders/{assetName}.hlsl");
-        
-        // Ensure directory exists
         string directory = Path.GetDirectoryName(filePath);
         if (!Directory.Exists(directory)) Directory.CreateDirectory(directory);
 
         File.WriteAllText(filePath, sb.ToString());
         
 #if UNITY_EDITOR
-        AssetDatabase.Refresh(); // Tells Unity a shader component file changed
+        AssetDatabase.Refresh();
 #endif
         Debug.Log($"Successfully baked character tree to: {filePath}");
     }
@@ -75,7 +72,6 @@ public class SdfCsgTreeBaker : MonoBehaviour
             return primVar;
         }
 
-        // Gather all operational CSG children, jumping through raw bones seamlessly
         List<SdfCsgNode> validCsgChildren = new List<SdfCsgNode>();
         GatherCsgChildren(node.transform, validCsgChildren);
 
@@ -105,7 +101,6 @@ public class SdfCsgTreeBaker : MonoBehaviour
         return currentAccumulator;
     }
 
-    // 🛠️ Helper to dive deep past bones to collect the immediate operational nodes below this group
     private void GatherCsgChildren(Transform parentTransform, List<SdfCsgNode> results)
     {
         for (int i = 0; i < parentTransform.childCount; i++)
@@ -116,12 +111,10 @@ public class SdfCsgTreeBaker : MonoBehaviour
             var csgNode = child.GetComponent<SdfCsgNode>();
             if (csgNode != null)
             {
-                // Found a valid operational node boundary! Add it and stop digging down this specific branch
                 results.Add(csgNode);
             }
             else
             {
-                // It's a raw bone or model wrapper container—keep looking deeper down its hierarchy
                 GatherCsgChildren(child, results);
             }
         }
@@ -134,25 +127,18 @@ public class SdfCsgTreeBakerEditor : Editor
 {
     public override void OnInspectorGUI()
     {
-        // Draw the default inspector variables (like assetName string)
         DrawDefaultInspector();
 
         EditorGUILayout.Space(10);
         
-        // Change button color to make it visually distinct
         GUI.backgroundColor = new Color(0.3f, 0.6f, 0.9f); 
 
-        // 🚀 Render the explicit button layout
         if (GUILayout.Button("Bake Tree to HLSL File", GUILayout.Height(35)))
         {
-            // Cast the target source object safely
             SdfCsgTreeBaker baker = (SdfCsgTreeBaker)target;
-            
-            // Execute the processing engine immediately on click
             baker.BakeToShaderFile();
         }
-        
-        // Reset color space configuration back to default state
+
         GUI.backgroundColor = Color.white;
     }
 }

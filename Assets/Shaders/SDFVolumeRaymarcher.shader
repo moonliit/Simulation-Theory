@@ -16,7 +16,6 @@ Shader "Custom/SdfVolumeRaymarcher"
 
     SubShader
     {
-        // 1. Move queue into Transparent so empty areas pass through perfectly
         Tags { "RenderType"="Transparent" "RenderPipeline"="UniversalPipeline" "Queue"="Transparent" }
         LOD 100
 
@@ -332,7 +331,6 @@ Shader "Custom/SdfVolumeRaymarcher"
                     float3 vectorToHit = hitPosWS - rayOriginWS;
                     float hitEyeDepth = dot(vectorToHit, cameraForward);
 
-                    // Occlude cleanly against standard opaque scene geometry like floors
                     if (hitEyeDepth < sceneLinearDepth)
                     {
                         float3 normal = CalculateCSGNormal(hitPosWS);
@@ -351,7 +349,7 @@ Shader "Custom/SdfVolumeRaymarcher"
                     }
                 }
 
-                discard; // Completely drops execution on empty spaces to keep background pristine
+                discard;
                 return float4(0.0, 0.0, 0.0, 0.0);
             }
 

@@ -7,8 +7,6 @@ public class FramerateCap : MonoBehaviour
     void Awake()
     {
         QualitySettings.vSyncCount = 0;
-
-        // 2. Set your desired framerate limit
         Application.targetFrameRate = targetFPS;
     }
 }

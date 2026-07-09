@@ -22,17 +22,14 @@ public class SdfOctreeNode
         containerPrefab = prefab;
     }
 
-    // Structural initialization: Subdivides using intersections instead of points
     public void BuildInitialTree(List<Transform> initialPopulation)
     {
         localPrimitives.Clear();
 
-        // FILTER USING BOUNDING BOX OVERLAPS
         foreach (var p in initialPopulation)
         {
             if (p == null) continue;
             
-            // Generate a bounding box context for the startup layout pass
             Bounds primitiveBounds = new Bounds(p.position, p.lossyScale);
             
             if (Bounds.Intersects(primitiveBounds))
@@ -41,7 +38,6 @@ public class SdfOctreeNode
             }
         }
 
-        // Subdivide if we exceed the limit and are still larger than the min size limit
         if (localPrimitives.Count > maxObjectsPerNode && Bounds.size.x > minNodeSize)
         {
             Subdivide();
@@ -75,16 +71,12 @@ public class SdfOctreeNode
                 }
             }
         }
-        
-        // When partitioning a leaf into a branch, its local rendering box must be cleared
+
         ClearCluster();
     }
 
-    // --- 📈 RUNTIME DYNAMIC SUBDIVISION ---
-    // --- 📈 RUNTIME DYNAMIC SUBDIVISION (VOLUME AWARE) ---
     public void AddPrimitiveDirectly(Transform primitive)
     {
-        // If this node is a branch, route the primitive's full volume down to all overlapping children
         if (childNodes != null)
         {
             RouteToChildNode(primitive);
@@ -94,13 +86,11 @@ public class SdfOctreeNode
         if (!localPrimitives.Contains(primitive))
         {
             localPrimitives.Add(primitive);
-            
-            // Re-verify if this leaf room is overcrowded at runtime
+
             if (localPrimitives.Count > maxObjectsPerNode && Bounds.size.x > minNodeSize)
             {
                 Subdivide();
-                
-                // Redistribute current roommates down into the new sub-rooms based on intersection
+
                 foreach (var p in localPrimitives)
                 {
                     RouteToChildNode(p);
@@ -109,8 +99,6 @@ public class SdfOctreeNode
             }
             else
             {
-                // CLEANED UP: We no longer call SetCurrentLeafNode(this) here!
-                // The subscriber handles its own list tracking inside RecalculateTreePresence()
                 UpdateClusterLifecycle();
             }
         }
@@ -119,11 +107,9 @@ public class SdfOctreeNode
     private void RouteToChildNode(Transform primitive)
     {
         if (primitive == null) return;
-        
-        // Form the bounding box of the primitive
+
         Bounds primBounds = new Bounds(primitive.position, primitive.lossyScale);
 
-        // Push it into EVERY child node it touches
         foreach (var child in childNodes)
         {
             if (child.Bounds.Intersects(primBounds))
@@ -133,10 +119,9 @@ public class SdfOctreeNode
         }
     }
 
-    // --- 📉 RUNTIME DYNAMIC COLLAPSING ---
     public void RemovePrimitiveDirectly(Transform primitive)
     {
-        if (childNodes != null) return; // Branches don't hold list elements directly
+        if (childNodes != null) return;
 
         if (localPrimitives.Contains(primitive))
         {
@@ -145,8 +130,6 @@ public class SdfOctreeNode
         }
     }
 
-    // Checks if all sibling nodes under a branch are empty, allowing a collapse merge
-    // Cache a unique collection list to avoid runtime GC allocation passes
     private readonly static HashSet<Transform> collapseEvaluationSet = new HashSet<Transform>();
 
     public bool CheckAndCollapse()
@@ -161,18 +144,14 @@ public class SdfOctreeNode
             if (child.childNodes != null) 
                 allChildrenAreLeaves = false;
 
-            // Gather only unique primitive references across all sibling sectors
             foreach (var p in child.localPrimitives)
             {
                 if (p != null) collapseEvaluationSet.Add(p);
             }
         }
 
-        // Collapse if children are deep-end leaves and their unique overlapping grouping 
-        // fits comfortably within a single parent room's capacity limits
         if (allChildrenAreLeaves && collapseEvaluationSet.Count <= maxObjectsPerNode)
         {
-            // Pull the unique elements back up into this parent room
             foreach (var p in collapseEvaluationSet)
             {
                 if (!localPrimitives.Contains(p))
@@ -181,17 +160,14 @@ public class SdfOctreeNode
                 }
             }
 
-            // Clean up the trailing child structures completely
             foreach (var child in childNodes)
             {
                 child.localPrimitives.Clear();
                 child.ClearCluster();
             }
 
-            childNodes = null; // Dissolve child partitions
+            childNodes = null;
             
-            // CLEANED UP: Force all inhabitants to find their actual new leaf arrangements 
-            // across the newly simplified node grid layout.
             foreach (var p in localPrimitives)
             {
                 var sub = p.GetComponent<SdfPrimitiveSubscriber>();
@@ -205,11 +181,6 @@ public class SdfOctreeNode
         return false;
     }
 
-    // CLEANED UP: Completely removed the redundant single-assignment AssignPrimitivesToThisLeaf() method.
-    // Primitives handle tracking via their own occupiedNodes list mapping now.
-
-    // --- (Keep your exact UpdateClusterLifecycle and ClearCluster methods here...)
-    // Manages the creation, removal, parenting, and sizing of the volume rendering container
     private SdfRigidBodyWrapper clusterWrapper;
 
     public void UpdateClusterLifecycle()
@@ -227,7 +198,6 @@ public class SdfOctreeNode
             return;
         }
 
-        // 1. Spawn the Sdf_Object container prefab if a primitive just entered an empty zone
         if (renderClusterInstance == null && containerPrefab != null)
         {
             renderClusterInstance = Object.Instantiate(containerPrefab, Bounds.center, Quaternion.identity);
@@ -236,18 +206,15 @@ public class SdfOctreeNode
             if (SdfOctreeManager.Instance != null)
                 renderClusterInstance.transform.SetParent(SdfOctreeManager.Instance.transform, true);
 
-            // Cache both components sitting on the prefab root
             clusterManager = renderClusterInstance.GetComponent<SdfSceneManager>();
             clusterWrapper = renderClusterInstance.GetComponent<SdfRigidBodyWrapper>();
         }
 
         if (renderClusterInstance != null)
         {
-            // 2. Shape the hidden raymarching bounds mesh to fill the node boundaries
             if (clusterWrapper != null)
                 clusterWrapper.ConfigureVolumeBounds(Bounds.center, Bounds.size * 1.05f);
 
-            // 3. Clear and hand over the list of shapes directly to the local Scene Manager
             if (clusterManager != null)
             {
                 clusterManager.localCubes.Clear();
@@ -265,7 +232,6 @@ public class SdfOctreeNode
                         clusterManager.localCubes.Add(p);
                 }
 
-                // Tell the local scene manager its datasets changed and need a GPU re-upload pass
                 clusterManager.MarkTransformDirty();
             }
         }
@@ -275,7 +241,7 @@ public class SdfOctreeNode
     {
         if (renderClusterInstance != null)
         {
-            // SAFETY CHECK: If the game is shutting down, let Unity handle cleanup naturally
+
             if (SdfOctreeManager.Instance != null && SdfOctreeManager.IsShuttingDown)
             {
                 renderClusterInstance = null;
@@ -283,7 +249,6 @@ public class SdfOctreeNode
                 return;
             }
 
-            // Normal runtime destruction
             if (Application.isPlaying)
             {
                 Object.Destroy(renderClusterInstance);
@@ -298,12 +263,10 @@ public class SdfOctreeNode
         }
     }
 
-    // Add this method anywhere inside your SdfOctreeNode class
     public void DrawNodeGizmos()
     {
         if (childNodes != null)
         {
-            // This is a branch node—color it a subtle, thin gray and pass down to children
             Gizmos.color = new Color(0.5f, 0.5f, 0.5f, 0.2f);
             Gizmos.DrawWireCube(Bounds.center, Bounds.size);
 
@@ -314,19 +277,15 @@ public class SdfOctreeNode
         }
         else
         {
-            // This is a leaf node! 
             if (localPrimitives.Count > 0)
             {
-                // If it contains active carving shapes, highlight it in bright solid green
                 Gizmos.color = new Color(0.2f, 1f, 0.3f, 0.4f);
                 Gizmos.DrawWireCube(Bounds.center, Bounds.size);
-                
-                // Optional: Draw a tiny solid dot at the center of populated zones
+
                 Gizmos.DrawSphere(Bounds.center, 0.1f);
             }
             else
             {
-                // Completely empty leaf node—draw a faint, thin blue wire box
                 Gizmos.color = new Color(0.2f, 0.5f, 1f, 0.08f);
                 Gizmos.DrawWireCube(Bounds.center, Bounds.size);
             }

@@ -20,7 +20,6 @@ public class CustomBGMLoop : MonoBehaviour
 
         if (bgm.time >= loopEndPoint)
         {
-            // ...la teletransportamos instantáneamente al inicio del loop
             bgm.time = loopStartPoint;
         }
     }

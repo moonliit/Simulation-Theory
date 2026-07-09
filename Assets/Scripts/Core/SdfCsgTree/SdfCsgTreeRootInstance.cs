@@ -26,7 +26,6 @@ public class SdfCsgTreeRootInstance : MonoBehaviour
 
     void OnEnable()
     {
-        // Register this entire object structure to the global manager
         SdfOctreeManager.RegisterCsgInstance(this);
     }
 
@@ -38,8 +37,6 @@ public class SdfCsgTreeRootInstance : MonoBehaviour
 
     void LateUpdate()
     {
-        // If the character moves or rotates, we must update both our internal shape matrices 
-        // and its registration inside the world octree partitions
         if (transform.position != lastPosition || transform.rotation != lastRotation)
         {
             lastPosition = transform.position;
@@ -58,7 +55,6 @@ public class SdfCsgTreeRootInstance : MonoBehaviour
             rootNode.GetFlattenedSubtree(flattenedPrimitives);
         }
 
-        // Force-flag all underlying sub-primitives to passive state so they don't leak into the global scope
         foreach (var node in flattenedPrimitives)
         {
             if (!node.isGroupNode && node.primitiveSubscriber != null)
@@ -80,23 +76,22 @@ public class SdfCsgTreeRootInstance : MonoBehaviour
         foreach (var node in flattenedPrimitives)
         {
             if (node.isGroupNode || node.primitiveSubscriber == null) continue;
-            if (idx >= maxBufferLimit) break; // Use the manager's maximum constant limit guard
+            if (idx >= maxBufferLimit) break;
 
             var prim = node.primitiveSubscriber;
             Transform t = prim.transform;
 
-            // Populate the MANAGER'S flat global array directly
             if (prim.IsCube())
             {
                 globalMatrices[idx] = Matrix4x4.TRS(t.position, t.rotation, Vector3.one).inverse;
                 Vector3 halfExtents = t.lossyScale * 0.5f;
-                globalData[idx] = new Vector4(halfExtents.x, halfExtents.y, halfExtents.z, 0f); // Type = 0
+                globalData[idx] = new Vector4(halfExtents.x, halfExtents.y, halfExtents.z, 0f);
             }
             else if (prim.IsSphere())
             {
                 globalMatrices[idx] = Matrix4x4.TRS(t.position, Quaternion.identity, Vector3.one).inverse;
                 float radius = Mathf.Max(t.lossyScale.x, Mathf.Max(t.lossyScale.y, t.lossyScale.z)) * 0.5f;
-                globalData[idx] = new Vector4(radius, 0f, 0f, 1.0f); // Type = 1
+                globalData[idx] = new Vector4(radius, 0f, 0f, 1.0f);
             }
             else if (prim.IsCapsule())
             {
@@ -106,12 +101,11 @@ public class SdfCsgTreeRootInstance : MonoBehaviour
 
                 float worldRadius = r * (dir == 1 ? Mathf.Max(Mathf.Abs(ls.x), Mathf.Abs(ls.z)) : (dir == 0 ? Mathf.Max(Mathf.Abs(ls.y), Mathf.Abs(ls.z)) : Mathf.Max(Mathf.Abs(ls.x), Mathf.Abs(ls.y))));
                 float worldHeight = h * (dir == 0 ? Mathf.Abs(ls.x) : (dir == 1 ? Mathf.Abs(ls.y) : Mathf.Abs(ls.z)));
-                globalData[idx] = new Vector4(worldRadius, worldHeight, (float)dir, 1.0f); // Type = 2
+                globalData[idx] = new Vector4(worldRadius, worldHeight, (float)dir, 1.0f);
             }
             idx++;
         }
 
-        // Return the new pointer position so the manager knows how many spots we consumed!
         return idx; 
     }
 
@@ -123,21 +117,20 @@ public class SdfCsgTreeRootInstance : MonoBehaviour
         SdfCsgNode rootNode = GetComponent<SdfCsgNode>();
         if (rootNode == null)
         {
-            Debug.LogError("❌ Can't print: No SdfCsgNode found on this root GameObject!");
+            Debug.LogError("Can't print: No SdfCsgNode found on this root GameObject!");
             return;
         }
 
-        // Run the actual flattening logic used by your baker and manager
         rootNode.GetFlattenedSubtree(testList);
 
-        Debug.Log($"====== 🌳 CSG TREE FLAT HIERARCHY ({testList.Count} elements) ======");
+        Debug.Log($"====== CSG TREE FLAT HIERARCHY ({testList.Count} elements) ======");
         
         for (int i = 0; i < testList.Count; i++)
         {
             var node = testList[i];
             if (node.isGroupNode)
             {
-                Debug.Log($"[{i}] 📂 GROUP OPERATOR: {node.groupOperation} | GameObject: {node.name}");
+                Debug.Log($"[{i}] GROUP OPERATOR: {node.groupOperation} | GameObject: {node.name}");
             }
             else
             {
@@ -145,7 +138,7 @@ public class SdfCsgTreeRootInstance : MonoBehaviour
                     ? node.primitiveSubscriber.shapeType.ToString() 
                     : "NULL (MISSING REFERENCE!)";
                     
-                Debug.Log($"[{i}] ┖ 📦 PRIMITIVE LEAF: {primType} | GameObject: {node.name}");
+                Debug.Log($"[{i}] PRIMITIVE LEAF: {primType} | GameObject: {node.name}");
             }
         }
         Debug.Log("==================================================");
@@ -153,16 +146,14 @@ public class SdfCsgTreeRootInstance : MonoBehaviour
 
     public void RecalculateOctreePresence()
     {
-        // 1. Clear out old sector allocations
         foreach (var leaf in occupiedOctreeNodes)
         {
-            leaf.RemovePrimitiveDirectly(transform); // Registers the entire root transform instead of individual pieces
+            leaf.RemovePrimitiveDirectly(transform);
         }
         occupiedOctreeNodes.Clear();
 
         if (SdfOctreeManager.Instance == null) return;
 
-        // 2. Encapsulate ALL child nodes to compute a single compound bounding box for the whole guy
         Bounds combinedBounds = new Bounds(transform.position, Vector3.zero);
         int validBoundsCount = 0;
 
@@ -181,11 +172,9 @@ public class SdfCsgTreeRootInstance : MonoBehaviour
 
         if (validBoundsCount == 0) return;
 
-        // 3. Query our octree manager to discover which sectors intersect our compound character volume
         List<SdfOctreeNode> overlappingLeaves = new List<SdfOctreeNode>();
         SdfOctreeManager.Instance.FindAllLeafNodesOverlapping(combinedBounds, overlappingLeaves);
 
-        // 4. Bind our master character root directly to those specific sub-regions
         foreach (var leaf in overlappingLeaves)
         {
             occupiedOctreeNodes.Add(leaf);
